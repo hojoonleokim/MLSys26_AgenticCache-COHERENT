@@ -3,10 +3,100 @@ import copy
 import numpy as np
 from tqdm import tqdm
 import time
+import os
 import json
 from openai import OpenAIError,OpenAI
 import backoff
 import traceback
+from multiprocessing import Pool, Manager
+import torch
+
+# Global variables for the worker process
+_oracle_worker_client = None
+_oracle_worker_lm_id = None
+_oracle_worker_debug = None
+
+def write_token_log_to_file( log_message=None, file_name=None):
+    file_name = os.path.join(_oracle_worker_result_dir, f'oracle_{_oracle_worker_lm_id}_token.txt')
+    with open(file_name, 'a') as file:  
+        file.write(log_message + '\n')
+
+def write_oracle_log_to_file( log_message=None, file_name=None):
+    file_name = os.path.join(_oracle_worker_result_dir, f'oracle_{_oracle_worker_lm_id}_log.txt')
+    with open(file_name, 'a') as file:  
+        file.write(log_message + '\n')
+
+def _pool_init_oracle(oracle_init_args):
+	"""Initialize the OpenAI client in the worker process for oracle"""
+	global _oracle_worker_client, _oracle_worker_lm_id, _oracle_worker_debug, _oracle_worker_result_dir
+	
+	api_key = oracle_init_args['api_key']
+	organization = oracle_init_args['organization']
+	_oracle_worker_lm_id = oracle_init_args['lm_id']
+	_oracle_worker_debug = oracle_init_args['debug']
+	_oracle_worker_result_dir = oracle_init_args['result_dir']
+	os.makedirs(_oracle_worker_result_dir, exist_ok=True)
+	
+	_oracle_worker_client = OpenAI(api_key=api_key, organization=organization)
+
+def _pool_check_init_oracle():
+	"""Dummy function to check if pool initialization is complete"""
+	global _oracle_worker_client
+	return _oracle_worker_client is not None
+
+def _oracle_worker_generate_single(oracle_prompt_path, obs2text, goal_instruction, num_agent, dialogue_history, action_history, sampling_params, done_flag, result_dict):
+	"""Worker function to generate oracle response in a single query"""
+	global _oracle_worker_client, _oracle_worker_lm_id, _oracle_worker_debug
+	
+	total_usage = 0
+	try:
+		# Build oracle prompt in worker process
+		with open(oracle_prompt_path, 'r') as f:
+			oracle_prompt = f.read()
+		oracle_prompt = oracle_prompt.replace('#AGENT_OBSERVATIONS#', obs2text)
+		oracle_prompt = oracle_prompt.replace('#TASK_GOAL#', goal_instruction)
+		oracle_prompt = oracle_prompt.replace('#NUMBER_AGENTS#', str(num_agent))
+		oracle_prompt = oracle_prompt.replace('#DIALOGUE_HISTORY#', dialogue_history)
+		oracle_prompt = oracle_prompt.replace('#ACTION_HISTORY#', action_history)
+		# Single generation: Oracle response in correct format
+		prompt_copy = [{"role": "system", "content": "You are a helper assistant."}, 
+		               {"role": "user", "content": oracle_prompt}]
+		write_oracle_log_to_file(f"Oracle Prompt: {oracle_prompt}")
+		response = _oracle_worker_client.chat.completions.create(
+			model=_oracle_worker_lm_id,
+			messages=prompt_copy,
+			**sampling_params
+		)
+		# Extract and log token usage
+		prompt_tokens = response.usage.prompt_tokens
+		completion_tokens = response.usage.completion_tokens
+		total_tokens = response.usage.total_tokens
+		write_token_log_to_file(f"INPUT: {prompt_tokens}, OUTPUT: {completion_tokens}, TOTAL: {total_tokens}")
+
+		if _oracle_worker_debug:
+			os.makedirs('./log', exist_ok=True)
+			with open(f"./chat_raw.json", 'a') as f:
+				f.write(json.dumps(response.model_dump(), indent=4))
+				f.write('\n')
+		
+		oracle_message = response.choices[0].message.content
+		
+		if 'gpt-4-0125-preview' in _oracle_worker_lm_id:
+			total_usage += response.usage.prompt_tokens * 0.01 / 1000 + response.usage.completion_tokens * 0.03 / 1000
+		elif 'gpt-3.5-turbo-1106' in _oracle_worker_lm_id:
+			total_usage += response.usage.prompt_tokens * 0.0015 / 1000 + response.usage.completion_tokens * 0.002 / 1000
+		
+		# Store results in shared dict (oracle_message is now the final formatted message)
+		result_dict['oracle_message'] = oracle_message
+		result_dict['usage'] = total_usage
+		done_flag.value = True
+		write_oracle_log_to_file(f"Oracle Response: {oracle_message}")
+		return oracle_message, total_usage
+	except OpenAIError as e:
+		print(e)
+		result_dict['error'] = str(e)
+		done_flag.value = True
+		raise e
 
 # @ray.remote
 class ArenaMP(object):
@@ -18,7 +108,6 @@ class ArenaMP(object):
         self.args = args
         self.num_agents = len(agent_fn)
         self.task_goal = None
-        self.record_dir = f'./log/{args.env}.txt'
         self.debug = args.debug
         print("Init Env")
         self.env = environment_fn()
@@ -30,7 +119,7 @@ class ArenaMP(object):
         self.robot_arm_prompt_path = args.robot_arm_prompt_path
 
         self.dialogue_history = ""
-        self.total_dialogue_history = []
+        self.total_dialogue_history = []  # list of (step, text) tuples
         self.chat = True
         self.source = args.source
         self.lm_id = args.lm_id
@@ -43,68 +132,131 @@ class ArenaMP(object):
         self.last_task_results = None
         self.last_satisfied = None
         self.last_unsatisfied = None
-        self.costdict = {}
-       
+        self.oracle_count = 0
+        self.last_instructed_agent_id = None
+        
+        # Logging: results/<branch>/<lm_id>/<env>/
+        self.result_dir = f'./results/{args.branch}/{self.lm_id}/{args.env}'
+        os.makedirs(self.result_dir, exist_ok=True)
+        self.record_dir = os.path.join(self.result_dir, f'{args.env}.txt')
+        self.action_record_dir = os.path.join(self.result_dir, f'{args.env}_action.txt')
 
         if self.source == 'openai':
             api_key = args.api_key # your openai api key
-            organization=args.organization # your openai organization
+            organization = args.organization # your openai organization
 
-            client = OpenAI(api_key = api_key, organization=organization)
             if self.chat:
-                self.sampling_params = {
-                    "max_tokens": args.max_tokens,
-                    "temperature": args.t,
-                    # "top_p": args.top_p,
-                    "n": args.n
-                }
-
-        def lm_engine( source, lm_id, device):
-
-            @backoff.on_exception(backoff.expo, OpenAIError)
-            def _generate(prompt, sampling_params):
-                usage = 0
-                if source == 'openai':
-                    try:
-                        if self.chat:
-                            prompt.insert(0,{"role":"system", "content":"You are a helper assistant."})
-                            response = client.chat.completions.create(
-                                model=lm_id, messages=prompt, **sampling_params
-                            )
-                            if self.debug:
-                                with open(f"./chat_raw.json", 'a') as f:
-                                    f.write(json.dumps(response, indent=4))
-                                    f.write('\n')
-                            generated_samples = [response.choices[i].message.content for i in
-                                                    range(sampling_params['n'])]
-                            if 'gpt-4-0125-preview' in self.lm_id:
-                                usage = response.usage.prompt_tokens * 0.01 / 1000 + response.usage.completion_tokens * 0.03 / 1000
-                            elif 'gpt-3.5-turbo-1106' in self.lm_id:
-                                usage = response.usage.prompt_tokens * 0.0015 / 1000 + response.usage.completion_tokens * 0.002 / 1000
-                        # mean_log_probs = [np.mean(response['choices'][i]['logprobs']['token_logprobs']) for i in
-                        # 				  range(sampling_params['n'])]
-                        else:
-                            raise ValueError(f"{lm_id} not available!")
-                    except OpenAIError as e:
-                        print(e)
-                        raise e
-
+                # GPT-5 models require different parameters
+                if 'gpt-5' in self.lm_id:
+                    self.sampling_params = {
+                        # "max_completion_tokens": args.max_tokens,
+                        # "temperature": args.t,  # GPT-5 only supports default temperature (1)
+                        # "top_p": 1.0,
+                        "n": args.n
+                    }
                 else:
-                    raise ValueError("invalid source")
-                return generated_samples, usage 
+                    self.sampling_params = {
+                        "max_tokens": args.max_tokens,
+                        "temperature": args.t,
+                        # "top_p": args.top_p,
+                        "n": args.n
+                    }
             
-            return _generate
+            # Create process pool with initialization
+            oracle_init_args = {
+                'api_key': api_key,
+                'organization': organization,
+                'lm_id': self.lm_id,
+                'debug': self.debug,
+                'result_dir': self.result_dir
+            }
+            
+            self.oracle_pool = Pool(
+                processes=1,
+                initializer=_pool_init_oracle,
+                initargs=(oracle_init_args,)
+            )
+            
+            # Wait for pool initialization to complete
+            self.oracle_pool.apply(_pool_check_init_oracle)
+            
+            self.manager = Manager()
+            self.use_pool = True
+            self.async_result = None
+            self.oracle_done_flag = self.manager.Value('b', False)
+            self.oracle_result_dict = self.manager.dict()
+        else:
+            raise ValueError("Only 'openai' source is currently supported")
+    
+    def submit_async_oracle_query(self, oracle_prompt_path, obs2text, goal_instruction, num_agent, dialogue_history, action_history, sampling_params):
+        """Submit async oracle query (single API call)
+        
+        Args:
+            oracle_prompt_path: Path to oracle prompt template file
+            obs2text: Observation text
+            goal_instruction: Task goal instruction
+            num_agent: Number of agents
+            dialogue_history: Dialogue history string
+            action_history: Action history string
+            sampling_params: Sampling parameters
+        """
+        if not self.use_pool:
+            raise ValueError("Pool not initialized")
+        
+        if self.async_result is not None:
+            print("Oracle async query already in progress")
+            return
+        
+        # Reset shared memory for new query
+        self.oracle_done_flag.value = False
+        self.oracle_result_dict.clear()
+        self.async_result = self.oracle_pool.apply_async(
+            _oracle_worker_generate_single,
+            (oracle_prompt_path, obs2text, goal_instruction, num_agent, dialogue_history, action_history, sampling_params, self.oracle_done_flag, self.oracle_result_dict)
+        )
+    
+    def check_async_oracle_result(self):
+        """Check if async oracle query is complete and return results"""
+        if self.async_result is not None and self.async_result.ready():
+            # Get the result (this should be immediate since ready() is True)
+            self.async_result.get(timeout=10)
+            oracle_message = self.oracle_result_dict.get('oracle_message', None)
+            usage = self.oracle_result_dict.get('usage', 0)
+            
+            # Clear the async result
+            self.async_result = None
+            self.oracle_done_flag.value = False
+            self.oracle_count += 1
+            return oracle_message
+        
+        return None
+    
+    def __del__(self):
+        """Cleanup the process pool when the object is destroyed"""
+        if hasattr(self, 'oracle_pool'):
+            self.oracle_pool.close()
+            self.oracle_pool.join()
+        if hasattr(self, 'manager'):
+            self.manager.shutdown()
 
-        self.generator = lm_engine(self.source, self.lm_id, self.device)
-
-    def get_actions(self, obs, chat_agent_info):
-
-        for id, agent in enumerate(self.agents):
-            if agent.agent_node["id"] == chat_agent_info["id"]:
-
-                action, message, info = agent.get_action(obs[id], chat_agent_info, self.env.task_goal)
-
-        return action, message, info
+    def _format_dialogue(self, window=10):
+        """Format recent dialogue history with step-based numbering.
+        Same step → same base number; multiple entries per step get sub-indices.
+        """
+        entries = self.total_dialogue_history[-window:]
+        if not entries:
+            return ""
+        from collections import Counter
+        step_counts = Counter(s for s, _ in entries)
+        step_seen = Counter()
+        formatted = []
+        for step, text in entries:
+            step_seen[step] += 1
+            if step_counts[step] == 1:
+                formatted.append(f"[{step}]、{text}")
+            else:
+                formatted.append(f"[{step}.{step_seen[step]}]、{text}")
+        return '\n'.join(formatted)
 
     def agent_obs2text(self, observation, agent_id):
         text = ""
@@ -174,6 +326,11 @@ class ArenaMP(object):
         with open(file_name, 'a') as file:  
             file.write(log_message + '\n')  
 
+    def write_action_to_file(self, log_message=None, file_name=None):
+        file_name = self.action_record_dir
+        with open(file_name, 'a') as file:  
+            file.write(log_message + '\n')
+
     def step(self):
         if self.env.steps == 0:
             pass
@@ -185,126 +342,216 @@ class ArenaMP(object):
         for i in range(self.num_agents):
             obs2text += self.agent_obs2text(obs, i) + '\n'
 
-        oracle_prompt = self.oracle_prompt_path 
-        with open(oracle_prompt, 'r') as f:
-            oracle_prompt = f.read()
-        oracle_prompt = oracle_prompt.replace('#AGENT_OBSERVATIONS#', obs2text)
-        oracle_prompt = oracle_prompt.replace('#TASK_GOAL#', self.env.goal_instruction)
-        oracle_prompt = oracle_prompt.replace('#NUMBER_AGENTS#', str(self.env.num_agent))
-        oracle_prompt = oracle_prompt.replace('#DIALOGUE_HISTORY#', self.dialogue_history)  
-        print(self.dialogue_history)
-      
-
         print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
         print((f"@@@@@@@@@@@@@@@@@@@@@@@@ Task_ID: {self.env.task_id} @@@@@@@@@@@"))
         print(f"$$$$$$$$$$$$$$$$$$$$$$$ Step:{self.env.steps} $$$$$$$$$$$$$$$$$$$$$$$")
         print(self.env.goal_instruction)
-              
-        chat_prompt = [{"role": "user", "content": oracle_prompt}]
-        outputs, usage = self.generator(chat_prompt, self.sampling_params)
-        self.total_cost += usage
-        message = outputs[0]
-
-        self.write_log_to_file(f"@@@@@@@@@@@@@@@@@@@@@@@ Task_ID: {self.env.task_id} @@@@@@@@@@@")
-        self.write_log_to_file(f"$$$$$$$$$$$$$$$$$$$$$$$ Step:{self.env.steps} $$$$$$$$$$$$$$$$$$$$$$$")
-        self.write_log_to_file(f'''*******************************************************************************************
-                               TASK_GOAL: {self.env.goal_instruction}
-                               ''')
-        self.write_log_to_file("OBSERVATIONS: \n" + obs2text)
-        self.write_log_to_file("Oracle: " + message)
-
-        self.total_dialogue_history.append( "Oracle: " + message)
-        extract_prompt = message + '\n' + 'Extract from the above paragraph the content of the format "Hello <class name>(id): message.". Then output the contents of this section. Be careful not to output any superfluous content, exactly in the format given. If the above paragraph is not exactly formatted as "Hello <class name>(id): #message#.", output similar content in this format. As an example, the output might read: "Hello <robot dog>(0): please movetowards the <door>(1), and then open the <door>(1)". If this format does not appear in the preceding text, please summarize the above content into this format for output. To emphasize once again, the names of all objects and agent robots must be enclosed in <>, and the (id) must not be omitted. Class name missing <> and (id) should be completed with these elements. Please strictly follow this format in the output content.' 
-        chat_prompt = [{"role": "user", "content": extract_prompt}]
-        outputs, usage = self.generator(chat_prompt , self.sampling_params)
-        self.total_cost += usage
-        message = outputs[0]
-        self.subgoal = message
-
-        self.write_log_to_file("Oracle: " + message)
         
-        if self.debug:
-        # input('wait a minute!')
-            print(f"message_oracle_prompt:\n{oracle_prompt}")
-            print('\n')
-            print(f"message_oracle_outputs:\n{message}")
-        try:
-            start_class_name = message.find('<') + 1  
-            end_class_name = message.find('>')        
-            start_id = message.find('(') + 1          
-            end_id = message.find(')')                
-
-            # extract class_name and real_id
-            class_name = message[start_class_name:end_class_name]
-            real_id = int(message[start_id:end_id])
-            id  = [key for key, value in id_name_dict.items() if value[1] == real_id]
-            agent_obs = self.agent_obs2text(obs, id[0])
-
-            if class_name == 'quadrotor':
-                prompt_path = self.quadrotor_prompt_path
-            elif class_name == 'robot dog' or class_name == 'robot_dog':
-                prompt_path = self.robot_dog_prompt_path
-            elif class_name == 'robot arm' or class_name == 'robot_arm':
-                prompt_path = self.robot_arm_prompt_path
-
-            chat_agent_info = {"class_name": class_name, 
-                            "id": real_id, 
-                            "observation": agent_obs, 
-                            "instruction": message, 
-                            "prompt_path": prompt_path
-                            }
-
-            agent_action, agent_message, agent_info = self.get_actions(obs,  chat_agent_info)
-            # agent_action = '[movetowards] <coffeetable> (12)'
-            # agent_message = 'YES I CAN. \n\nThe first step to accomplish the task is to move towards the coffeetable. This action is available in the list of actions I can perform. After moving to the coffeetable, I can use my robotic arm to pick up the apple. \n\nTherefore, the best available action to achieve the goal as soon as possible is to [movetowards] <coffeetable> (12). The action I finally decided to perform is [movetowards] <coffeetable> (12).'
-            self.write_log_to_file(str(agent_info["LLM"]["action_list"]))
-
-            self.write_log_to_file(f"<{class_name}>({real_id}): " + str(agent_message))
+        # Check if Oracle result is ready
+        oracle_message = self.check_async_oracle_result()
+        
+        if oracle_message is not None:
+            # Oracle result is ready, use it and immediately submit next query
+            print(f"Oracle result received: {oracle_message}")
             
-            self.costdict =  self.update_dict(f"<{class_name}>({real_id})", agent_info["LLM"]["cost"], self.costdict)
-            self.write_log_to_file(f"COST1:{self.total_cost}!!!!!")
-            self.write_log_to_file(str(self.costdict))
-            self.write_log_to_file(f"COST2:{sum(self.costdict.values())}!!!!!")
-            self.write_log_to_file(f'总的花费：{self.total_cost + sum(self.costdict.values())}')
-            self.write_log_to_file('$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$ ')
+            # Collect action history from all agents (one line per agent)
+            agent_action_lines = []
+            for agent in self.agents:
+                agent_class_name = agent.agent_node['class_name']
+                agent_real_id = agent.agent_node['id']
+                if agent.action_history:
+                    actions_str = ', '.join(agent.action_history)
+                    agent_action_lines.append(f"<{agent_class_name}>({agent_real_id}): {actions_str}")
+            
+            # Format action history
+            action_history = '\n'.join(agent_action_lines)
+                
+            # Immediately submit next query
+            self.submit_async_oracle_query(
+                self.oracle_prompt_path,
+                obs2text,
+                self.env.goal_instruction,
+                self.env.num_agent,
+                self.dialogue_history,
+                action_history,
+                self.sampling_params
+            )
+            print("Oracle next query submitted")
 
-            self.total_dialogue_history.append(f"<{class_name}>({real_id}): " + str(agent_message))
-            numbered_list = [f"[{i+1}]、{item}" for i, item in enumerate(self.total_dialogue_history)]
-            self.dialogue_history = '\n'.join(numbered_list[-10:])
-        except Exception as e:
-    
-            print(f"An error occurred: {e}")
-            traceback.print_exc()
-            error_info = traceback.format_exc()
-            self.write_log_to_file(f"An error occurred: {e}")
-            self.write_log_to_file(error_info+'\n\n')
-            agent_action = None
-            agent_message = "all robot agents: In the last step, the oracle's reasoning was incorrect, and no instructions were given to any of the robot agents, therefore none of the robot agents performed any actions. Please reassess the information in the environment and give a correct instruction strictly following the template 'Hello <class name>(id): #message#.'"
-            self.total_dialogue_history.append(agent_message)
-            numbered_list = [f"[{i+1}]、{item}" for i, item in enumerate(self.total_dialogue_history)]
-            self.dialogue_history = '\n'.join(numbered_list[-10:])
-      
+        else:
+            if self.async_result is None:
+                # No query in flight — submit the initial oracle query
+                agent_action_lines = []
+                for agent in self.agents:
+                    agent_class_name = agent.agent_node['class_name']
+                    agent_real_id = agent.agent_node['id']
+                    if agent.action_history:
+                        actions_str = ', '.join(agent.action_history)
+                        agent_action_lines.append(f"<{agent_class_name}>({agent_real_id}): {actions_str}")
+                action_history = '\n'.join(agent_action_lines)
+
+                self.submit_async_oracle_query(
+                    self.oracle_prompt_path,
+                    obs2text,
+                    self.env.goal_instruction,
+                    self.env.num_agent,
+                    self.dialogue_history,
+                    action_history,
+                    self.sampling_params
+                )
+                print("Initial oracle query submitted, blocking until done...")
+
+                # Block on the very first oracle call so agents start with a plan
+                while not self.oracle_done_flag.value:
+                    time.sleep(0.1)
+                oracle_message = self.check_async_oracle_result()
+                print(f"First oracle result received: {oracle_message}")
+
+                # Immediately submit next async query
+                self.submit_async_oracle_query(
+                    self.oracle_prompt_path,
+                    obs2text,
+                    self.env.goal_instruction,
+                    self.env.num_agent,
+                    self.dialogue_history,
+                    action_history,
+                    self.sampling_params
+                )
+            else:
+                print("Oracle query in progress, waiting for result...")
+
+        # Process Oracle result if available
+        target_class_name = None
+        target_real_id = None
+        self.subgoal = None
+        if oracle_message is not None:
+            self.write_log_to_file("Oracle: " + oracle_message)
+            self.total_dialogue_history.append((self.env.steps, "Oracle: " + oracle_message))
+            message = oracle_message
+            self.subgoal = message
+
+            if self.debug:
+                print(f"message_oracle_outputs:\n{message}")
+            
+            try:
+                start_class_name = message.find('<') + 1  
+                end_class_name = message.find('>')        
+                start_id = message.find('(') + 1          
+                end_id = message.find(')')                
+
+                # extract class_name and real_id
+                target_class_name = message[start_class_name:end_class_name]
+                target_real_id = int(message[start_id:end_id])
+                
+                self.last_instructed_agent_id = target_real_id
+                print(f"Oracle selected agent: <{target_class_name}>({target_real_id})")
+            except Exception as e:
+                print(f"An error occurred while parsing Oracle message: {e}")
+                traceback.print_exc()
+                error_info = traceback.format_exc()
+                self.write_log_to_file(f"An error occurred: {e}")
+                self.write_log_to_file(error_info+'\n\n')
+                agent_message = "all robot agents: In the last step, the oracle's reasoning was incorrect, and no instructions were given to any of the robot agents, therefore none of the robot agents performed any actions. Please reassess the information in the environment and give a correct instruction strictly following the template 'Hello <class name>(id): #message#.'"
+                self.total_dialogue_history.append((self.env.steps, agent_message))
+                self.dialogue_history = self._format_dialogue()
         
-        if agent_action is None:
+        # Execute each agent: decide action and execute immediately
+        executed_actions_info = []  # Collect all executed actions info
+        prev_step = self.env.steps
+
+        for agent_idx, agent in enumerate(self.agents):
+            # Get updated observation after previous agents' actions
+            obs = self.env.get_observations()
+            
+            agent_node = agent.agent_node
+            agent_real_id = agent_node["id"]
+            agent_class_name = agent_node["class_name"]
+            agent_obs = self.agent_obs2text(obs, agent_idx)
+            # print(f"Agent {agent_class_name}({agent_real_id}) observation: {agent_obs}")
+            # Determine prompt path based on agent class
+            if agent_class_name == 'quadrotor':
+                prompt_path = self.quadrotor_prompt_path
+            elif agent_class_name == 'robot dog' or agent_class_name == 'robot_dog':
+                prompt_path = self.robot_dog_prompt_path
+            elif agent_class_name == 'robot arm' or agent_class_name == 'robot_arm':
+                prompt_path = self.robot_arm_prompt_path
+            else:
+                prompt_path = None
+            
+            # Only pass instruction if this is the Oracle-selected agent
+            instruction = None
+            if target_real_id is not None and agent_real_id == target_real_id:
+                instruction = oracle_message
+                # print(f"Passing Oracle instruction to agent <{agent_class_name}>({agent_real_id})")
+            elif target_real_id is not None:
+                # Clear last_instruction for other agents
+                agent.last_instruction = None
+            
+            chat_agent_info = {
+                "class_name": agent_class_name, 
+                "id": agent_real_id, 
+                "observation": agent_obs, 
+                "instruction": instruction, 
+                "prompt_path": prompt_path
+            }
+            # print(chat_agent_info)
+            action, message, info = agent.get_action(obs[agent_idx], chat_agent_info, self.env.task_goal, self.env.goal_instruction)
+            print(f"Executing action for <{agent_class_name}>({agent_real_id}): {action}")
+            
+                # Log all non-wait actions to dialogue history
+            if message is not None and self.last_instructed_agent_id is not None and agent_real_id == self.last_instructed_agent_id:
+                self.total_dialogue_history.append((prev_step, f"<{agent_class_name}>({agent_real_id}): " + str(message)))
+                self.dialogue_history = self._format_dialogue()
+            
+            # If agent decided an action, execute it immediately
+            if action is not None:
+
+                # Execute action immediately
+                try:
+                    done, task_results, satisfied, unsatisfied, _ = self.env.step(agent_class_name, agent_real_id, action, self.task_goal)
+                    
+                    self.last_done = done
+                    self.last_task_results = task_results
+                    self.last_satisfied = satisfied
+                    self.last_unsatisfied = unsatisfied
+                    
+                    # Collect executed action info
+                    executed_actions_info.append({
+                        'agent_idx': agent_idx,
+                        'agent_class_name': agent_class_name,
+                        'agent_real_id': agent_real_id,
+                        'action': action,
+                        'message': message,
+                        'had_instruction': instruction if instruction is not None else None
+                    })
+                    
+                except Exception as e:
+                    print(f"Exception occurs when performing action for agent {agent_real_id}: {action}")
+                    traceback.print_exc()
+                    raise Exception
+        
+        # If no actions were executed
+        if len(executed_actions_info) == 0:
             done = self.last_done
             task_results = self.last_task_results
             satisfied = self.last_satisfied
             unsatisfied = self.last_unsatisfied
-            self.env.steps += 1
+        
+        # Set step counter: increment by 1 regardless of how many agents acted
+        if len(executed_actions_info) != 0:
+            steps = prev_step + 1
         else:
-            try:
-                done, task_results,satisfied, unsatisfied,steps= self.env.step(class_name, real_id, agent_action, self.task_goal)
-                self.last_done = done
-                self.last_task_results = task_results
-                self.last_satisfied = satisfied
-                self.last_unsatisfied = unsatisfied
-                
-            except Exception as e:
-                print("Exception occurs when performing action: ", agent_action)
-                raise Exception
-        self.write_log_to_file(f'\nDIALOGUE_HISTORY:\n{self.dialogue_history}')  
-        steps = self.env.steps
-        return done, task_results, satisfied, unsatisfied, id, agent_action, agent_message,steps
+            # Wait for any agent's LLM or oracle's LLM to complete before continuing
+            steps = prev_step
+            while not (any(agent.llm_done_flag.value for agent in self.agents) or self.oracle_done_flag.value):
+                time.sleep(1)  # Short sleep to avoid busy waiting
+        
+        # Synchronize step counter across environment and all agents
+        self.env.steps = steps
+        for agent in self.agents:
+            agent.steps = steps
+        print(self.dialogue_history)
+        return done, task_results, satisfied, unsatisfied, executed_actions_info, steps
 
 
     def run(self):
@@ -313,40 +560,67 @@ class ArenaMP(object):
         saved_info = []
 
         success = False
+        count = 0
+        self.start_time = time.time()
         while True:
+            count += 1
+            done, task_results, satisfied, unsatisfied, executed_actions_info, steps = self.step()
             
-            done, task_results, satisfied, unsatisfied, id, agent_action, agent_message,steps  = self.step()
+            # Extract lists from executed_actions_info
+            agent_ids = [info['agent_idx'] for info in executed_actions_info]
+            actions = [info['action'] for info in executed_actions_info]
+            agent_messages = [info['message'] for info in executed_actions_info]
+            
             saved_info.append({'task_id': self.env.task_id,
-                      'env_id': self.env.env_id,
-                      'task_name': self.env.task_name,
-                      'gt_steps': self.env.ground_truth_step_num,
-                      'task_goal': self.task_goal,
-                      'goal_instruction': self.env.goal_instruction,
-                      'step': steps,
-                      'subgoal': self.subgoal,
-                      'agent_id': id[0],
-                      'action': agent_action,
-                      'agent_message': agent_message,
-                      'satisfied': satisfied,
-                      'unsatisfied': unsatisfied,
-                      'env_graph': self.env.graph, 
-                    })
+                        'env_id': self.env.env_id,
+                        'task_name': self.env.task_name,
+                        'gt_steps': self.env.ground_truth_step_num,
+                        'task_goal': self.task_goal,
+                        'goal_instruction': self.env.goal_instruction,
+                        'step': steps,
+                        'subgoal': self.subgoal,
+                        'agent_ids': agent_ids,  # List of agent indices
+                        'actions': actions,  # List of actions
+                        'agent_messages': agent_messages,  # List of messages
+                        'satisfied': satisfied,
+                        'unsatisfied': unsatisfied,
+                        'env_graph': self.env.graph, 
+                })
            
             success = done
       
             max_setp = 2 * self.env.ground_truth_step_num
-            if self.env.steps > max_setp:
+            if (self.oracle_count > max_setp):
                 print("---------------------------")
                 print("The task failed, exceeding 2 times the number of GT steps")
                 print(f"Whether steps in gt*2+1 are successful:{done}")
-                print(f" setps: {steps}")
+                print(f" setps: {steps}/{max_setp}")
                 print("---------------------------")
+                # Record final result
+                elapsed = time.time() - getattr(self, 'start_time', time.time())
+                
+                # Collect action history from all agents
+                agent_histories = []
+                for idx, agent in enumerate(self.agents):
+                    agent_class = agent.agent_node['class_name']
+                    agent_id = agent.agent_node['id']
+                    history = agent.action_history if hasattr(agent, 'action_history') else []
+                    agent_histories.append(f"  <{agent_class}>({agent_id}): {history}")
+                
+                final_log = (
+                    f"FINAL RESULT - Task_ID: {self.env.task_id}, Task_Name: {self.env.task_name}, "
+                    f"Num_Agents: {self.num_agents}, Task_Goal: {self.task_goal}, Goal_Instruction: {self.env.goal_instruction},\n "
+                    f"Success: False, Satisfied: {satisfied}, Unsatisfied: {unsatisfied}, Elapsed_Time: {elapsed:.2f}s\n"
+                    f"Agent Action Histories:\n" + "\n".join(agent_histories)
+                )
+                self.write_action_to_file(final_log)
                 self.write_log_to_file(f'''---------------------------
-                                       The task failed, exceeding 2 times the number of GT steps
-                                       Whether steps in gt*2+1 are successful:{done}
-                                       setps: {steps}
-                                       ---------------------------
-                                       ''')
+The task failed, exceeding 2 times the number of GT steps
+Whether steps in gt*2+1 are successful:{done}
+setps: {steps}/{max_setp}
+oracle_count: {self.oracle_count}/{max_setp}
+---------------------------
+''')
             
                 success = False
                 break
@@ -354,13 +628,31 @@ class ArenaMP(object):
             if success:
                 
                 self.write_log_to_file(f'''-------------------------------------
-                                            success!
-                                            setps: {steps}
-                                            --------------------------------
-                                            ''')
+success!
+setps: {steps}/{max_setp}
+oracle_count: {self.oracle_count}/{max_setp}
+--------------------------------
+''')
+                # Record final result with elapsed time on success as well
+                elapsed = time.time() - getattr(self, 'start_time', time.time())
+                
+                # Collect action history from all agents
+                agent_histories = []
+                for idx, agent in enumerate(self.agents):
+                    agent_class = agent.agent_node['class_name']
+                    agent_id = agent.agent_node['id']
+                    history = agent.action_history if hasattr(agent, 'action_history') else []
+                    agent_histories.append(f"  <{agent_class}>({agent_id}): {history}")
+                
+                final_log = (
+                    f"FINAL RESULT - Task_ID: {self.env.task_id}, Task_Name: {self.env.task_name}, "
+                    f"Num_Agents: {self.num_agents}, Task_Goal: {self.task_goal}, Goal_Instruction: {self.env.goal_instruction},\n "
+                    f"Success: True, Satisfied: {satisfied}, Unsatisfied: {unsatisfied}, Elapsed_Time: {elapsed:.2f}s\n"
+                    f"Agent Action Histories:\n" + "\n".join(agent_histories)
+                )
+                self.write_action_to_file(final_log)
                 break
-        saved_info[steps-1]['is_finished'] = success
-        
+        saved_info[steps-1]['is_finished'] = success        
         return success, steps, saved_info
 
     def update_dict(self,key, value, my_dict):

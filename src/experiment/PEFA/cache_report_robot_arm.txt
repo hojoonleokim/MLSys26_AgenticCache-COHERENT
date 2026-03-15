@@ -1,0 +1,43 @@
+Agent Type: robot_arm
+Episodes: 4, Steps: 8
+================================================================================
+
+SELECTION RATES
+----------------------------------------
+  grab_goal_subj: 4/4 (100.0%)
+  put_goal_obj: 1/1 (100.0%)
+  put_drone_basket: 3/4 (75.0%)
+  open: 0/3 (0.0%)
+  puton: 0/3 (0.0%)
+  grab: 0/1 (0.0%)
+  putinto: 0/1 (0.0%)
+  put_basket: 0/1 (0.0%)
+
+INSTRUCTION MATCH RATES (plan in oracle instruction)
+----------------------------------------
+  grab_goal_subj: 4/4 (100.0%)
+  put_drone_basket: 3/3 (100.0%)
+  put_goal_obj: 1/1 (100.0%)
+
+FULL BIGRAMS
+----------------------------------------
+  (12 total)
+    [None -> grab_goal_subj]: 4 (100.0%)
+    [grab_goal_subj -> put_drone_basket]: 3 (75.0%)
+    [grab_goal_subj -> put_goal_obj]: 1 (25.0%)
+    [put_drone_basket -> wait]: 3 (100.0%)
+    [put_goal_obj -> wait]: 1 (100.0%)
+
+CONDITIONED BIGRAMS
+----------------------------------------
+Context features: ['goal_object_on_same_surface', 'has_colocated_agent', 'has_grabbed']
+
+  [s0_c1_g0] (4 total)
+    [None -> grab_goal_subj]: 4 (100.0%)
+
+  [s0_c1_g1] (8 total)
+    [grab_goal_subj -> put_drone_basket]: 3 (75.0%)
+    [grab_goal_subj -> put_goal_obj]: 1 (25.0%)
+    [put_drone_basket -> wait]: 3 (100.0%)
+    [put_goal_obj -> wait]: 1 (100.0%)
+

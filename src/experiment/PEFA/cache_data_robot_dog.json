@@ -1,0 +1,283 @@
+{
+  "agent_type": "robot_dog",
+  "total_episodes": 4,
+  "total_steps": 20,
+  "selection_rates": {
+    "movetowards_goal_obj_open": {
+      "chosen": 2,
+      "total": 6,
+      "rate": 0.333333
+    },
+    "movetowards_goal_subj": {
+      "chosen": 1,
+      "total": 7,
+      "rate": 0.142857
+    },
+    "movetowards_door": {
+      "chosen": 0,
+      "total": 12,
+      "rate": 0.0
+    },
+    "movetowards_drone_basket": {
+      "chosen": 4,
+      "total": 12,
+      "rate": 0.333333
+    },
+    "movetowards": {
+      "chosen": 0,
+      "total": 20,
+      "rate": 0.0
+    },
+    "open": {
+      "chosen": 2,
+      "total": 2,
+      "rate": 1.0
+    },
+    "close": {
+      "chosen": 0,
+      "total": 2,
+      "rate": 0.0
+    },
+    "grab_goal_subj": {
+      "chosen": 4,
+      "total": 4,
+      "rate": 1.0
+    },
+    "put_drone_basket": {
+      "chosen": 1,
+      "total": 4,
+      "rate": 0.25
+    },
+    "movetowards_goal_obj": {
+      "chosen": 3,
+      "total": 3,
+      "rate": 1.0
+    },
+    "put_goal_obj": {
+      "chosen": 3,
+      "total": 3,
+      "rate": 1.0
+    },
+    "puton": {
+      "chosen": 0,
+      "total": 1,
+      "rate": 0.0
+    }
+  },
+  "instruction_match_rates": {
+    "movetowards_goal_obj_open": {
+      "matched": 2,
+      "total": 2,
+      "rate": 1.0
+    },
+    "open": {
+      "matched": 2,
+      "total": 2,
+      "rate": 1.0
+    },
+    "movetowards_drone_basket": {
+      "matched": 4,
+      "total": 4,
+      "rate": 1.0
+    },
+    "grab_goal_subj": {
+      "matched": 4,
+      "total": 4,
+      "rate": 1.0
+    },
+    "movetowards_goal_obj": {
+      "matched": 3,
+      "total": 3,
+      "rate": 1.0
+    },
+    "put_goal_obj": {
+      "matched": 3,
+      "total": 3,
+      "rate": 1.0
+    },
+    "movetowards_goal_subj": {
+      "matched": 1,
+      "total": 1,
+      "rate": 1.0
+    },
+    "put_drone_basket": {
+      "matched": 1,
+      "total": 1,
+      "rate": 1.0
+    }
+  },
+  "bigrams": {
+    "None": [
+      [
+        "movetowards_goal_obj_open",
+        2
+      ],
+      [
+        "movetowards_drone_basket",
+        1
+      ],
+      [
+        "movetowards_goal_subj",
+        1
+      ]
+    ],
+    "movetowards_goal_obj_open": [
+      [
+        "open",
+        1
+      ],
+      [
+        "wait",
+        1
+      ]
+    ],
+    "open": [
+      [
+        "movetowards_drone_basket",
+        2
+      ]
+    ],
+    "movetowards_drone_basket": [
+      [
+        "grab_goal_subj",
+        3
+      ],
+      [
+        "put_drone_basket",
+        1
+      ]
+    ],
+    "grab_goal_subj": [
+      [
+        "movetowards_goal_obj",
+        3
+      ],
+      [
+        "movetowards_drone_basket",
+        1
+      ]
+    ],
+    "movetowards_goal_obj": [
+      [
+        "put_goal_obj",
+        3
+      ]
+    ],
+    "put_goal_obj": [
+      [
+        "wait",
+        3
+      ]
+    ],
+    "wait": [
+      [
+        "open",
+        1
+      ]
+    ],
+    "movetowards_goal_subj": [
+      [
+        "grab_goal_subj",
+        1
+      ]
+    ],
+    "put_drone_basket": [
+      [
+        "wait",
+        1
+      ]
+    ]
+  },
+  "conditioned_bigrams": {
+    "c1_g0": {
+      "None": [
+        [
+          "movetowards_goal_obj_open",
+          2
+        ],
+        [
+          "movetowards_drone_basket",
+          1
+        ],
+        [
+          "movetowards_goal_subj",
+          1
+        ]
+      ],
+      "movetowards_goal_obj_open": [
+        [
+          "open",
+          1
+        ],
+        [
+          "wait",
+          1
+        ]
+      ],
+      "open": [
+        [
+          "movetowards_drone_basket",
+          2
+        ]
+      ],
+      "movetowards_drone_basket": [
+        [
+          "grab_goal_subj",
+          3
+        ]
+      ],
+      "wait": [
+        [
+          "open",
+          1
+        ]
+      ],
+      "movetowards_goal_subj": [
+        [
+          "grab_goal_subj",
+          1
+        ]
+      ]
+    },
+    "c1_g1": {
+      "grab_goal_subj": [
+        [
+          "movetowards_goal_obj",
+          3
+        ],
+        [
+          "movetowards_drone_basket",
+          1
+        ]
+      ],
+      "movetowards_goal_obj": [
+        [
+          "put_goal_obj",
+          3
+        ]
+      ],
+      "put_goal_obj": [
+        [
+          "wait",
+          3
+        ]
+      ],
+      "movetowards_drone_basket": [
+        [
+          "put_drone_basket",
+          1
+        ]
+      ],
+      "put_drone_basket": [
+        [
+          "wait",
+          1
+        ]
+      ]
+    }
+  },
+  "context_features": [
+    "has_colocated_agent",
+    "has_grabbed"
+  ]
+}

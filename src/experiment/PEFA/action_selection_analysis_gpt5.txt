@@ -1,0 +1,22 @@
+Model: gpt-5
+
+quadrotor
+  takeoff_from: 47/47 (100.0%)
+  movetowards: 63/110 (57.3%)
+  land_on: 47/110 (42.7%)
+
+robot_arm
+  grab: 32/34 (94.1%)
+  putinto: 29/32 (90.6%)
+  open: 2/17 (11.8%)
+  puton: 3/32 (9.4%)
+  close: 0/4 (0.0%)
+
+robot_dog
+  open: 15/15 (100.0%)
+  grab: 38/43 (88.4%)
+  putinto: 26/41 (63.4%)
+  movetowards: 106/197 (53.8%)
+  puton: 12/32 (37.5%)
+  close: 0/18 (0.0%)
+

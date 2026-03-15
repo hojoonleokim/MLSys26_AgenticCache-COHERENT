@@ -1,0 +1,64 @@
+Agent Type: quadrotor
+Episodes: 4, Steps: 24
+================================================================================
+
+SELECTION RATES
+----------------------------------------
+  takeoff_from_instruction: 8/8 (100.0%)
+  land_on_instruction: 4/4 (100.0%)
+  movetowards_instruction: 3/3 (100.0%)
+  movetowards_agent_surface: 4/7 (57.1%)
+  land_on_agent_surface: 4/8 (50.0%)
+  movetowards: 1/16 (6.2%)
+  land_on: 0/4 (0.0%)
+
+INSTRUCTION MATCH RATES (plan in oracle instruction)
+----------------------------------------
+  takeoff_from_instruction: 8/8 (100.0%)
+  movetowards_agent_surface: 4/4 (100.0%)
+  land_on_agent_surface: 4/4 (100.0%)
+  movetowards: 1/1 (100.0%)
+  land_on_instruction: 4/4 (100.0%)
+  movetowards_instruction: 3/3 (100.0%)
+
+FULL BIGRAMS
+----------------------------------------
+  (32 total)
+    [None -> takeoff_from_instruction]: 4 (100.0%)
+    [land_on -> wait]: 4 (100.0%)
+    [land_on_agent_surface -> wait]: 4 (100.0%)
+    [movetowards -> land_on_instruction]: 4 (100.0%)
+    [movetowards_agent_surface -> land_on_agent_surface]: 4 (100.0%)
+    [takeoff_from -> movetowards_agent_surface]: 4 (50.0%)
+    [takeoff_from -> movetowards_instruction]: 3 (37.5%)
+    [takeoff_from -> movetowards]: 1 (12.5%)
+    [wait -> takeoff_from_instruction]: 4 (100.0%)
+
+CONDITIONED BIGRAMS
+----------------------------------------
+Context features: ['basket_has_items', 'has_colocated_agent']
+
+  [b0_c0] (13 total)
+    [None -> takeoff_from_instruction]: 1 (100.0%)
+    [land_on -> wait]: 1 (100.0%)
+    [land_on_agent_surface -> wait]: 3 (100.0%)
+    [movetowards -> land_on_instruction]: 1 (100.0%)
+    [movetowards_agent_surface -> land_on_agent_surface]: 3 (100.0%)
+    [takeoff_from -> movetowards_agent_surface]: 3 (75.0%)
+    [takeoff_from -> movetowards_instruction]: 1 (25.0%)
+
+  [b0_c1] (3 total)
+    [None -> takeoff_from_instruction]: 3 (100.0%)
+
+  [b1_c0] (12 total)
+    [land_on -> wait]: 3 (100.0%)
+    [land_on_agent_surface -> wait]: 1 (100.0%)
+    [movetowards -> land_on_instruction]: 3 (100.0%)
+    [movetowards_agent_surface -> land_on_agent_surface]: 1 (100.0%)
+    [takeoff_from -> movetowards_instruction]: 2 (50.0%)
+    [takeoff_from -> movetowards]: 1 (25.0%)
+    [takeoff_from -> movetowards_agent_surface]: 1 (25.0%)
+
+  [b1_c1] (4 total)
+    [wait -> takeoff_from_instruction]: 4 (100.0%)
+

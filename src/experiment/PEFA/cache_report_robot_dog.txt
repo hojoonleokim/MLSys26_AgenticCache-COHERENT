@@ -1,0 +1,72 @@
+Agent Type: robot_dog
+Episodes: 4, Steps: 20
+================================================================================
+
+SELECTION RATES
+----------------------------------------
+  open: 2/2 (100.0%)
+  grab_goal_subj: 4/4 (100.0%)
+  movetowards_goal_obj: 3/3 (100.0%)
+  put_goal_obj: 3/3 (100.0%)
+  movetowards_goal_obj_open: 2/6 (33.3%)
+  movetowards_drone_basket: 4/12 (33.3%)
+  put_drone_basket: 1/4 (25.0%)
+  movetowards_goal_subj: 1/7 (14.3%)
+  movetowards_door: 0/12 (0.0%)
+  movetowards: 0/20 (0.0%)
+  close: 0/2 (0.0%)
+  puton: 0/1 (0.0%)
+
+INSTRUCTION MATCH RATES (plan in oracle instruction)
+----------------------------------------
+  movetowards_goal_obj_open: 2/2 (100.0%)
+  open: 2/2 (100.0%)
+  movetowards_drone_basket: 4/4 (100.0%)
+  grab_goal_subj: 4/4 (100.0%)
+  movetowards_goal_obj: 3/3 (100.0%)
+  put_goal_obj: 3/3 (100.0%)
+  movetowards_goal_subj: 1/1 (100.0%)
+  put_drone_basket: 1/1 (100.0%)
+
+FULL BIGRAMS
+----------------------------------------
+  (25 total)
+    [None -> movetowards_goal_obj_open]: 2 (50.0%)
+    [None -> movetowards_drone_basket]: 1 (25.0%)
+    [None -> movetowards_goal_subj]: 1 (25.0%)
+    [grab_goal_subj -> movetowards_goal_obj]: 3 (75.0%)
+    [grab_goal_subj -> movetowards_drone_basket]: 1 (25.0%)
+    [movetowards_drone_basket -> grab_goal_subj]: 3 (75.0%)
+    [movetowards_drone_basket -> put_drone_basket]: 1 (25.0%)
+    [movetowards_goal_obj -> put_goal_obj]: 3 (100.0%)
+    [movetowards_goal_obj_open -> open]: 1 (50.0%)
+    [movetowards_goal_obj_open -> wait]: 1 (50.0%)
+    [movetowards_goal_subj -> grab_goal_subj]: 1 (100.0%)
+    [open -> movetowards_drone_basket]: 2 (100.0%)
+    [put_drone_basket -> wait]: 1 (100.0%)
+    [put_goal_obj -> wait]: 3 (100.0%)
+    [wait -> open]: 1 (100.0%)
+
+CONDITIONED BIGRAMS
+----------------------------------------
+Context features: ['has_colocated_agent', 'has_grabbed']
+
+  [c1_g0] (13 total)
+    [None -> movetowards_goal_obj_open]: 2 (50.0%)
+    [None -> movetowards_drone_basket]: 1 (25.0%)
+    [None -> movetowards_goal_subj]: 1 (25.0%)
+    [movetowards_drone_basket -> grab_goal_subj]: 3 (100.0%)
+    [movetowards_goal_obj_open -> open]: 1 (50.0%)
+    [movetowards_goal_obj_open -> wait]: 1 (50.0%)
+    [movetowards_goal_subj -> grab_goal_subj]: 1 (100.0%)
+    [open -> movetowards_drone_basket]: 2 (100.0%)
+    [wait -> open]: 1 (100.0%)
+
+  [c1_g1] (12 total)
+    [grab_goal_subj -> movetowards_goal_obj]: 3 (75.0%)
+    [grab_goal_subj -> movetowards_drone_basket]: 1 (25.0%)
+    [movetowards_drone_basket -> put_drone_basket]: 1 (100.0%)
+    [movetowards_goal_obj -> put_goal_obj]: 3 (100.0%)
+    [put_drone_basket -> wait]: 1 (100.0%)
+    [put_goal_obj -> wait]: 3 (100.0%)
+

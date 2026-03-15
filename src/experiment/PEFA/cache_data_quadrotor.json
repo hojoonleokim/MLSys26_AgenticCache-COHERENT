@@ -1,0 +1,230 @@
+{
+  "agent_type": "quadrotor",
+  "total_episodes": 4,
+  "total_steps": 24,
+  "selection_rates": {
+    "takeoff_from_instruction": {
+      "chosen": 8,
+      "total": 8,
+      "rate": 1.0
+    },
+    "land_on": {
+      "chosen": 0,
+      "total": 4,
+      "rate": 0.0
+    },
+    "movetowards_agent_surface": {
+      "chosen": 4,
+      "total": 7,
+      "rate": 0.571429
+    },
+    "movetowards": {
+      "chosen": 1,
+      "total": 16,
+      "rate": 0.0625
+    },
+    "land_on_agent_surface": {
+      "chosen": 4,
+      "total": 8,
+      "rate": 0.5
+    },
+    "land_on_instruction": {
+      "chosen": 4,
+      "total": 4,
+      "rate": 1.0
+    },
+    "movetowards_instruction": {
+      "chosen": 3,
+      "total": 3,
+      "rate": 1.0
+    }
+  },
+  "instruction_match_rates": {
+    "takeoff_from_instruction": {
+      "matched": 8,
+      "total": 8,
+      "rate": 1.0
+    },
+    "movetowards_agent_surface": {
+      "matched": 4,
+      "total": 4,
+      "rate": 1.0
+    },
+    "land_on_agent_surface": {
+      "matched": 4,
+      "total": 4,
+      "rate": 1.0
+    },
+    "movetowards": {
+      "matched": 1,
+      "total": 1,
+      "rate": 1.0
+    },
+    "land_on_instruction": {
+      "matched": 4,
+      "total": 4,
+      "rate": 1.0
+    },
+    "movetowards_instruction": {
+      "matched": 3,
+      "total": 3,
+      "rate": 1.0
+    }
+  },
+  "bigrams": {
+    "None": [
+      [
+        "takeoff_from_instruction",
+        4
+      ]
+    ],
+    "takeoff_from": [
+      [
+        "movetowards_agent_surface",
+        4
+      ],
+      [
+        "movetowards_instruction",
+        3
+      ],
+      [
+        "movetowards",
+        1
+      ]
+    ],
+    "movetowards_agent_surface": [
+      [
+        "land_on_agent_surface",
+        4
+      ]
+    ],
+    "land_on_agent_surface": [
+      [
+        "wait",
+        4
+      ]
+    ],
+    "wait": [
+      [
+        "takeoff_from_instruction",
+        4
+      ]
+    ],
+    "movetowards": [
+      [
+        "land_on_instruction",
+        4
+      ]
+    ],
+    "land_on": [
+      [
+        "wait",
+        4
+      ]
+    ]
+  },
+  "conditioned_bigrams": {
+    "b0_c0": {
+      "None": [
+        [
+          "takeoff_from_instruction",
+          1
+        ]
+      ],
+      "takeoff_from": [
+        [
+          "movetowards_agent_surface",
+          3
+        ],
+        [
+          "movetowards_instruction",
+          1
+        ]
+      ],
+      "movetowards_agent_surface": [
+        [
+          "land_on_agent_surface",
+          3
+        ]
+      ],
+      "land_on_agent_surface": [
+        [
+          "wait",
+          3
+        ]
+      ],
+      "movetowards": [
+        [
+          "land_on_instruction",
+          1
+        ]
+      ],
+      "land_on": [
+        [
+          "wait",
+          1
+        ]
+      ]
+    },
+    "b1_c1": {
+      "wait": [
+        [
+          "takeoff_from_instruction",
+          4
+        ]
+      ]
+    },
+    "b1_c0": {
+      "takeoff_from": [
+        [
+          "movetowards_instruction",
+          2
+        ],
+        [
+          "movetowards",
+          1
+        ],
+        [
+          "movetowards_agent_surface",
+          1
+        ]
+      ],
+      "movetowards": [
+        [
+          "land_on_instruction",
+          3
+        ]
+      ],
+      "land_on": [
+        [
+          "wait",
+          3
+        ]
+      ],
+      "movetowards_agent_surface": [
+        [
+          "land_on_agent_surface",
+          1
+        ]
+      ],
+      "land_on_agent_surface": [
+        [
+          "wait",
+          1
+        ]
+      ]
+    },
+    "b0_c1": {
+      "None": [
+        [
+          "takeoff_from_instruction",
+          3
+        ]
+      ]
+    }
+  },
+  "context_features": [
+    "basket_has_items",
+    "has_colocated_agent"
+  ]
+}

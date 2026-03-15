@@ -1,0 +1,32 @@
+Model: gpt-5
+Total Episodes: 40
+Successful Episodes: 40 (100.0%)
+
+quadrotor
+1. [None -> takeoff_from]: 30 (23.6%)
+2. [takeoff_from -> movetowards]: 47 (37.0%)
+3. [movetowards -> land_on]: 47 (37.0%)
+4. [land_on -> takeoff_from]: 17 (13.4%)
+5. [movetowards -> movetowards]: 16 (12.6%)
+
+robot_arm
+1. [None -> grab]: 21 (50.0%)
+2. [None -> open]: 2 (4.8%)
+3. [grab -> putinto]: 29 (69.0%)
+4. [putinto -> grab]: 8 (19.0%)
+5. [grab -> puton]: 3 (7.1%)
+6. [open -> grab]: 2 (4.8%)
+
+robot_dog
+1. [None -> movetowards]: 31 (18.8%)
+2. [grab -> movetowards]: 38 (23.0%)
+3. [movetowards -> grab]: 37 (22.4%)
+4. [movetowards -> putinto]: 26 (15.8%)
+5. [movetowards -> movetowards]: 16 (9.7%)
+6. [movetowards -> open]: 15 (9.1%)
+7. [open -> movetowards]: 14 (8.5%)
+8. [movetowards -> puton]: 12 (7.3%)
+9. [putinto -> movetowards]: 5 (3.0%)
+10. [puton -> movetowards]: 1 (0.6%)
+11. [puton -> grab]: 1 (0.6%)
+
