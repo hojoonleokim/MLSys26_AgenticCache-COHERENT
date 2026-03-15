@@ -1,4 +1,5 @@
 import argparse
+import os
 
 # import torch
 import pdb
@@ -27,10 +28,10 @@ def get_args():
                     help='path of robot_dog_prompt')
     parser.add_argument('--robot_arm_prompt_path', default="./prompt/robot_arm_prompt.txt",
                     help='path of robot_arm_prompt')
-    parser.add_argument('--judge_prompt_path', default="./prompt/judge_prompt.txt",
-                    help='path of judge_prompt')
-    parser.add_argument('--api_key', default='',
+    parser.add_argument('--api_key', default=os.environ.get('OPENAI_API_KEY', ''),
                     help='please enter your openai api_key')
+    parser.add_argument('--branch', default='',
+                    help='branch name for result organization (auto-detected from git if empty)')
     parser.add_argument('--organization', default='', 
                     help='please enter your openai organization')
     parser.add_argument("--t", default=0, type=float)

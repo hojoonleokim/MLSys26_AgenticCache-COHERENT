@@ -1,7 +1,57 @@
 from LLM import *
 import re
 import copy
+from multiprocessing import Pool, Manager
 
+_worker_agent_llm = None
+
+def _pool_init_agent_llm(init_args):
+	"""Initialize single LLM instance in worker process"""
+	global _worker_agent_llm
+	source, lm_id, args, agent_node = init_args
+	_worker_agent_llm = LLM(source, lm_id, args, agent_node)
+
+
+def _pool_check_init():
+	"""Dummy function to check if pool initialization is complete"""
+	global _worker_agent_llm
+	return _worker_agent_llm is not None
+
+def async_agent_llm_worker(llm_args, done_flag, result_plan, result_info):
+	"""Worker function that runs agent LLM planning in a separate process"""
+	try:
+		global _worker_agent_llm
+		
+		# Unpack arguments (same order as LLM_plan)
+		(agent_node, chat_agent_info, current_room, next_rooms,
+		 all_landable_surfaces, landable_surfaces, on_surfaces,
+		 grabbed_objects, reachable_objects, unreached_objects,
+		 on_same_surfaces, action_history) = llm_args
+		
+		# Use the shared global LLM instance
+		message, info = _worker_agent_llm.run(
+			agent_node, chat_agent_info, current_room, next_rooms,
+			all_landable_surfaces, landable_surfaces, on_surfaces,
+			grabbed_objects, reachable_objects, unreached_objects,
+			on_same_surfaces, action_history
+		)
+		
+		# Store results in shared memory
+		result_plan['plan'] = info.get('plan', None)
+		result_plan['message'] = message
+		result_info.update(info)
+		
+		# Set done flag
+		done_flag.value = True
+		
+	except Exception as e:
+		print(f"Error in async agent LLM worker: {e}")
+		import traceback
+		traceback.print_exc()
+		result_plan['plan'] = None
+		result_plan['message'] = None
+		result_info['error'] = str(e)
+		done_flag.value = True
 
 class LLM_agent:
 	"""
@@ -16,7 +66,7 @@ class LLM_agent:
 		self.source = args.source
 		self.lm_id = args.lm_id
 		self.args = args
-		self.LLM = LLM(self.source, self.lm_id, self.args)
+		self.LLM = LLM(self.source, "gpt-5-nano", self.args, agent_node)
 		self.unsatisfied = {}
 		self.steps = 0
 		self.plan = None
@@ -29,12 +79,32 @@ class LLM_agent:
 		self.id_inside_room = {}
 		self.satisfied = []
 		self.reachable_objects = []
+		self.action_history = {}
 
+		agent_init_args = (self.source, self.lm_id, self.args, agent_node)
+		self.agent_pool = Pool(
+			processes=3,
+			initializer=_pool_init_agent_llm,
+			initargs=(agent_init_args,)
+		)
+		self.plan_draft = {}
+		self.plan_target = {}
+		# Wait for pool initialization to complete
+		self.agent_pool.apply(_pool_check_init)
+		
+		self.manager = Manager()
+		
+		# Async LLM call management - Speculative decoding (depth 3)
+		self.async_results = [None, None, None]
+		self.llm_done_flags = [self.manager.Value('b', False) for _ in range(3)]
+		self.async_plans = [self.manager.dict() for _ in range(3)]
+		self.async_infos = [self.manager.dict() for _ in range(3)]
+		self.issue_steps = [None, None, None]
+		self.stale_before_step = None
 
 	def LLM_plan(self):
-
 		return self.LLM.run(self.agent_node, self.chat_agent_info, self.current_room, self.next_rooms, self.all_landable_surfaces,self.landable_surfaces, 
-					  self.on_surfaces, self.grabbed_objects, self.reachable_objects, self.unreached_objects, self.on_same_surfaces)
+					  self.on_surfaces, self.grabbed_objects, self.reachable_objects, self.unreached_objects, self.on_same_surfaces, self.action_history)
 
 
 	def check_progress(self, state, goal_spec):
@@ -59,9 +129,100 @@ class LLM_agent:
 				unsatisfied[key] = value  
 		return satisfied, unsatisfied
 
+	def submit_async_llm_query(self):
+		"""Submit async LLM query to the first available slot"""
+		# Find first empty slot
+		empty_slot = None
+		for i in range(3):
+			if self.async_results[i] is None:
+				empty_slot = i
+				break
+		
+		if empty_slot is None:
+			# print(f"Agent {self.agent_node['class_name']}({self.agent_node['id']}): All slots busy")
+			return
+		
+		# Record issue step
+		self.issue_steps[empty_slot] = self.steps
+		
+		# Reset shared memory for new query
+		self.llm_done_flags[empty_slot].value = False
+		self.async_plans[empty_slot].clear()
+		self.async_infos[empty_slot].clear()
+		
+		# Use chat_agent_info directly
+		chat_agent_info_copy = dict(self.chat_agent_info)
+		
+		# Prepare arguments tuple
+		llm_args = (
+			self.agent_node, chat_agent_info_copy, self.current_room, self.next_rooms,
+			self.all_landable_surfaces, self.landable_surfaces, self.on_surfaces,
+			self.grabbed_objects, self.reachable_objects, self.unreached_objects,
+			self.on_same_surfaces, self.action_history
+		)
+		
+		# Submit to process pool
+		self.async_results[empty_slot] = self.agent_pool.apply_async(
+			async_agent_llm_worker,
+			(llm_args, self.llm_done_flags[empty_slot], self.async_plans[empty_slot], self.async_infos[empty_slot])
+		)
+	
+	def check_async_llm_result(self):
+		"""Check all async LLM queries and write consecutively completed results to self.plan_target"""
+		# First, discard any completed stale results (tokens already logged by workers)
+		for i in range(3):
+			if (self.async_results[i] is not None and self.llm_done_flags[i].value
+					and self.stale_before_step is not None
+					and self.issue_steps[i] is not None
+					and self.issue_steps[i] < self.stale_before_step):
+				try:
+					self.async_results[i].get(timeout=0.1)
+				except:
+					pass
+				self.async_results[i] = None
+				self.llm_done_flags[i].value = False
+				self.issue_steps[i] = None
 
-	def get_action(self, observation, chat_agent_info, goal):
+		# Collect all completed non-stale queries with their issue_steps
+		completed = []
+		for i in range(3):
+			if self.async_results[i] is not None and self.llm_done_flags[i].value:
+				completed.append((self.issue_steps[i], i))
+		
+		if not completed:
+			return
+		
+		# Sort by issue_step (smallest first)
+		completed.sort(key=lambda x: x[0])
+		
+		# Find the smallest issued step across ALL slots (pending + completed)
+		# to ensure we don't process out-of-order results
+		all_issued = [self.issue_steps[i] for i in range(3)
+					  if self.issue_steps[i] is not None]
+		expected_step = min(all_issued)
+		
+		for issue_step, slot_idx in completed:
+			if issue_step != expected_step:
+				break  # Gap detected (earlier step still pending), stop here
+			
+			# Get the result
+			self.async_results[slot_idx].get(timeout=0.1)
+			plan = self.async_plans[slot_idx].get('plan', None)
+			message = self.async_plans[slot_idx].get('message', None)
+			
+			# Write to self.plan_target (plan only)
+			self.plan_target[issue_step] = plan
+			
+			# Clear this slot
+			self.async_results[slot_idx] = None
+			self.llm_done_flags[slot_idx].value = False
+			self.issue_steps[slot_idx] = None
+			
+			expected_step += 1
 
+	def get_action(self, observation, chat_agent_info, goal, steps):
+		self.steps = steps
+		self.chat_agent_info = chat_agent_info
 		satisfied, unsatisfied = self.check_progress(observation, goal) 
 		# print(f"satisfied: {satisfied}")
 		if len(satisfied) > 0:
@@ -143,13 +304,15 @@ class LLM_agent:
 						 "current_room": self.current_room['class_name'],
 						},
 				}
-
+		self.check_async_llm_result()
+		self.submit_async_llm_query()
 		message, a_info = self.LLM_plan()
 		if a_info['plan'] is None: 
 			print("No more things to do!")
 		plan = a_info['plan']
 		a_info.update({"steps": self.steps})
 		info.update({"LLM": a_info})
-
+		self.action_history[self.steps] = plan
+		self.plan_draft[self.steps] = plan
+		
 		return plan, message, info
-

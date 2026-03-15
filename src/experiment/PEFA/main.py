@@ -1,14 +1,34 @@
 import json
+import time
+import subprocess
 from LLM_agent import LLM_agent
 from args import get_args
 from LLM_oracle import ArenaMP
 from get_env_info import Get_env_info
 import traceback
 import argparse
+import os
 
 args = get_args()
 
-def write_log_to_file(log_message, file_name=f'./log/{args.env}.txt'):
+# Determine branch name for result organization
+branch_name = args.branch
+if not branch_name:
+    try:
+        branch_name = subprocess.check_output(
+            ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
+            stderr=subprocess.DEVNULL
+        ).decode().strip()
+    except Exception:
+        branch_name = 'unknown'
+
+# Setup result directory: results/<branch>/<lm_id>/<env>/
+args.branch = branch_name
+result_dir = f'./results/{branch_name}/{args.lm_id}/{args.env}'
+os.makedirs(result_dir, exist_ok=True)
+
+def write_log_to_file(log_message, file_name=os.path.join(result_dir, 'run_log.txt')):
+        os.makedirs(os.path.dirname(file_name), exist_ok=True)
         with open(file_name, 'a') as file:  
             file.write(log_message + '\n')  
 
@@ -27,12 +47,16 @@ if __name__ == '__main__':
     Env4: [0, 1, 7, 10, 12, 17, 18, 19]
     '''
     tasklist = args.task
-    # S = [[] for _ in range(len(tasklist))]
-    # L = [[] for _ in range(len(tasklist))] 
     steps_list, tasks_result = [], []
     success_tasks, failed_tasks = [], []
+    episode_results = {}
+    episode_times = {}
 
     for task_id in tasklist:
+        # Create episode_dir for per-episode structured data
+        episode_dir = os.path.join(result_dir, f'episode_{task_id}')
+        os.makedirs(episode_dir, exist_ok=True)
+
         env_id = data[task_id]["env_id"]
         task_name = data[task_id]["task_name"]
         graph = data[task_id]["init_graph"]
@@ -85,10 +109,10 @@ if __name__ == '__main__':
         arena = ArenaMP(env_fn, agents, args)
 
         steps = 0
-        # import ipdb ;ipdb.set_trace()
 
+        task_start_time = time.time()
         try:
-            success, steps, saved_info = arena.run()
+            success, steps, saved_info = arena.run() # run the environment
         except Exception as e:
 
             print(f"An error occurred: {e}")
@@ -97,8 +121,9 @@ if __name__ == '__main__':
             write_log_to_file(f"An error occurred: {e}")
             write_log_to_file(error_info+'\n\n')
             success = False
+            saved_info = []
             raise Exception
-            # input('STOP')
+        task_elapsed = time.time() - task_start_time
         print(f'---------Env:{env_id}---Task:{task_id}-------------------------')
         print('success' if success else 'failure')
         print('steps:', steps)
@@ -110,9 +135,87 @@ if __name__ == '__main__':
         else:
             failed_tasks.append(task_id)
 
-    write_log_to_file('average steps:', sum(steps_list)/len(steps_list) if len(steps_list) > 0 else None)
-    write_log_to_file('successful tasks:', success_tasks if len(success_tasks) > 0 else None)
-    write_log_to_file('failed tasks:', failed_tasks if len(failed_tasks) > 0 else None)
-    print('average steps:', sum(steps_list)/len(steps_list) if len(steps_list) > 0 else None)
+        # Save episode result
+        episode_results[str(task_id)] = {
+            "task_name": task_name,
+            "success": success,
+            "steps": steps,
+            "oracle_count": arena.oracle_count,
+            "gt_steps": ground_truth_step_num,
+            "time": task_elapsed
+        }
+
+        # Save per-episode detailed data (episode_dir already created above)
+
+        # Save step-by-step timeline (exclude env_graph to save space)
+        timeline = []
+        for si in saved_info:
+            entry = {k: v for k, v in si.items() if k != 'env_graph'}
+            timeline.append(entry)
+        with open(os.path.join(episode_dir, 'timeline.jsonl'), 'w') as f:
+            for entry in timeline:
+                f.write(json.dumps(entry, default=str) + '\n')
+
+        # Save per-agent action history
+        for agent_obj in agents:
+            agent_class = agent_obj.agent_node['class_name'].replace(' ', '_')
+            agent_real_id = agent_obj.agent_node['id']
+            agent_file = os.path.join(episode_dir, f'agent_{agent_class}_{agent_real_id}.jsonl')
+            with open(agent_file, 'w') as f:
+                for step_num, action in sorted(agent_obj.action_history.items()):
+                    entry = {
+                        "step": step_num,
+                        "action": action if action is not None else "[wait]"
+                    }
+                    f.write(json.dumps(entry) + '\n')
+        
+        # Cleanup: Wait for all async agent queries to complete and close pools before next episode
+        print("Cleaning up resources before next episode...")
+        
+        # Step 1: Wait for all pending async agent queries to complete
+        for idx, agent in enumerate(agents):
+            if hasattr(agent, 'async_results'):
+                print(f"Waiting for pending Agent {idx} queries...")
+                for i in range(3):
+                    if agent.async_results[i] is not None:
+                        try:
+                            agent.async_results[i].get(timeout=30)
+                        except Exception as e:
+                            print(f"Warning: Agent {idx} async query {i} failed: {e}")
+                        agent.async_results[i] = None
+        
+        # Step 2: Close and join agent pools
+        for idx, agent in enumerate(agents):
+            if hasattr(agent, 'agent_pool'):
+                print(f"Closing Agent {idx} pool...")
+                agent.agent_pool.close()
+                agent.agent_pool.join()
+        
+        # Step 3: Shutdown agent managers AFTER pools are completely done
+        for idx, agent in enumerate(agents):
+            if hasattr(agent, 'manager'):
+                agent.manager.shutdown()
+        
+        print("Resource cleanup complete. Ready for next episode.\n")
+
+    # Save aggregated eval_result.json
+    avg_steps = sum(steps_list)/len(steps_list) if len(steps_list) > 0 else None
+    succ_steps = [steps_list[i] for i in range(len(tasks_result)) if tasks_result[i] == 1]
+    eval_result = {
+        "branch": branch_name,
+        "model": args.lm_id,
+        "env": args.env,
+        "avg_succ": sum(tasks_result) / len(tasks_result) if tasks_result else 0.0,
+        "avg_succ_steps": sum(succ_steps) / len(succ_steps) if succ_steps else None,
+        "episode_results": episode_results
+    }
+    with open(os.path.join(result_dir, 'eval_result.json'), 'w') as f:
+        json.dump(eval_result, f, indent=4)
+    print(f'[Results saved to {result_dir}/eval_result.json]')
+
+    write_log_to_file(f'average steps: {avg_steps}')
+    write_log_to_file(f'successful tasks: {success_tasks if len(success_tasks) > 0 else None}')
+    write_log_to_file(f'failed tasks: {failed_tasks if len(failed_tasks) > 0 else None}')
+    print('average steps:', avg_steps)
     print('successful tasks:', success_tasks if len(success_tasks) > 0 else None )
     print('failed tasks:', failed_tasks if len(failed_tasks) > 0 else None)    
