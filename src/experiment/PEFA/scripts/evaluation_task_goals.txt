@@ -1,0 +1,184 @@
+
+================================================================================
+ENV0 - Tasks: [2, 4, 9, 10, 11, 15, 16, 20]
+================================================================================
+
+Task  2 ( 5 steps):
+  Instruction: Put the <bread>(26) into the <plate>(51) which is on the <dining table>(13) and put the <milkbox>(30) into the <microwave>(15). The <bread>(26) is originally in the <microwave>(15).
+  Goal: {'inside_<bread>(26)_<plate>(51)': [1, []], 'inside_<milkbox>(30)_<microwave>(15)': [1, []], 'on_<plate>(51)_<dining table>(13)': [1, []]}
+
+Task  4 ( 8 steps):
+  Instruction: Put the <cup>(19) on the <coffee table>(12). The <cup>(19) is originally in the <fridge>(14) which is in the <kitchen>(6).
+  Goal: {'on_<cup>(19)_<coffee table>(12)': [1, []]}
+
+Task  9 ( 9 steps):
+  Instruction: The <quadrotor>(22) lands on the <high kitchen table>(35) with the <plate>(51) in the <basket>(25).
+  Goal: {'inside_<plate>(51)_<basket>(25)': [1, []], 'on_<quadrotor>(22)_<high kitchen table>(35)': [1, []]}
+
+Task 10 (10 steps):
+  Instruction: The <quadrotor>(22) lands on the <high kitchen table>(35) with the <banana>(18) in the <basket>(25). The <banana>(18) is originally in the <fridge>(14) which is in the <kitchen>(6).
+  Goal: {'inside_<banana>(18)_<basket>(25)': [1, []], 'on_<quadrotor>(22)_<high kitchen table>(35)': [1, []]}
+
+Task 11 (11 steps):
+  Instruction: The <quadrotor>(22) lands on the <high kitchen table>(35) with the <orange>(49) in the <basket>(25). The <orange>(49) is originally in the <bedroom>(0).
+  Goal: {'inside_<orange>(49)_<basket>(25)': [1, []], 'on_<quadrotor>(22)_<high kitchen table>(35)': [1, []]}
+
+Task 15 (14 steps):
+  Instruction: Put the <milkbox>(30) into the <fridge>(14).
+  Goal: {'inside_<milkbox>(30)_<fridge>(14)': [1, []]}
+
+Task 16 (12 steps):
+  Instruction: Put the <bread>(26) and <knife>(54) into the <plate>(51) which is on the <dining table>(13). The <bread>(26) is originally in the <microwave>(15).
+  Goal: {'inside_<bread>(26)_<plate>(51)': [1, []], 'inside_<knife>(54)_<plate>(51)': [1, []], 'on_<plate>(51)_<dining table>(13)': [1, []]}
+
+Task 20 (13 steps):
+  Instruction: Put the <flashlight>(40) into the <box>(52).
+  Goal: {'inside_<flashlight>(40)_<box>(52)': [1, []]}
+
+
+================================================================================
+ENV1 - Tasks: [1, 3, 7, 8, 11, 10, 16, 20]
+================================================================================
+
+Task  1 ( 6 steps):
+  Instruction: Put the <old clothes>(42) on the <chair>(5).
+  Goal: {'on_<old clothes>(42)_<chair>(5)': [1, []]}
+
+Task  3 ( 7 steps):
+  Instruction: Put the <pencil box>(43) on the <storage shelf>(38). They are both in the <utility room>(34).
+  Goal: {'on_<pencil box>(43)_<storage shelf>(38)': [1, []]}
+
+Task  7 ( 8 steps):
+  Instruction: The <quadrotor>(22) lands on the <kitchen table>(11) with the <cookbook>(28) in the <basket>(23). 
+  Goal: {'inside_<cookbook>(28)_<basket>(23)': [1, []], 'on_<quadrotor>(22)_<kitchen table>(11)': [1, []]}
+
+Task  8 (11 steps):
+  Instruction: The <quadrotor>(22) lands on the <dining table>(9) with the <bread>(25) in the <basket>(23). The <bread>(25) is originally in the <fridge>(7).
+  Goal: {'inside_<bread>(25)_<basket>(23)': [1, []], 'on_<quadrotor>(22)_<dining table>(9)': [1, []]}
+
+Task 11 (10 steps):
+  Instruction: The <quadrotor>(22) lands on the <dining table>(9) with the <apple>(14) and <tomato>(15) in the <basket>(23). 
+  Goal: {'inside_<apple>(14)_<basket>(23)': [1, []], 'inside_<tomato>(15)_<basket>(23)': [1, []], 'on_<quadrotor>(22)_<dining table>(9)': [1, []]}
+
+Task 10 (14 steps):
+  Instruction: Put the <plate>(40) into the <fridge>(7).
+  Goal: {'inside_<plate>(40)_<fridge>(7)': [1, []]}
+
+Task 16 (13 steps):
+  Instruction: Put the <hand towel>(12) on the <coffee table>(4).
+  Goal: {'on_<hand towel>(12)_<coffee table>(4)': [1, []]}
+
+Task 20 (14 steps):
+  Instruction: Put the <mirror>(54) on the <dining table>(9).
+  Goal: {'on_<mirror>(54)_<dining table>(9)': [1, []]}
+
+
+================================================================================
+ENV2 - Tasks: [3, 5, 6, 7, 10, 11, 16, 17]
+================================================================================
+
+Task  3 ( 6 steps):
+  Instruction: Put the <chocolate bar>(35), <paper money>(36), and <receipt>(37) into the <shopping basket>(30).
+  Goal: {'inside_<chocolate bar>(35)_<shopping basket>(30)': [1, []], 'inside_<paper money>(36)_<shopping basket>(30)': [1, []], 'inside_<receipt>(37)_<shopping basket>(30)': [1, []]}
+
+Task  5 ( 8 steps):
+  Instruction: Put the <empty box>(39) into the <trash can>(38) and put the <rag>(40) into the <bucket>(41).
+  Goal: {'inside_<empty box>(39)_<trash can>(38)': [1, []], 'inside_<rag>(40)_<bucket>(41)': [1, []]}
+
+Task  6 (11 steps):
+  Instruction: The <quadrotor>(21) lands on the <display table>(42) with the <box of candy>(31) and <box of candy>(32) in the <basket>(22).
+  Goal: {'inside_<box of candy>(31)_<basket>(22)': [1, []], 'inside_<box of candy>(32)_<basket>(22)': [1, []], 'on_<quadrotor>(21)_<display table>(42)': [1, []]}
+
+Task  7 (10 steps):
+  Instruction: Put the <apple>(9) into the <shopping basket>(30). 
+  Goal: {'inside_<apple>(9)_<shopping basket>(30)': [1, []]}
+
+Task 10 (11 steps):
+  Instruction: The <quadrotor>(21) lands on the <display table>(42) with the <box of candy>(31) and <pack of bread>(27) in the <basket>(22). 
+  Goal: {'inside_<box of candy>(31)_<basket>(22)': [1, []], 'inside_<pack of bread>(27)_<basket>(22)': [1, []], 'on_<quadrotor>(21)_<display table>(42)': [1, []]}
+
+Task 11 (12 steps):
+  Instruction: Put the <chocolate bar>(35) on the <pedestal table>(6).
+  Goal: {'on_<chocolate bar>(35)_<pedestal table>(6)': [1, []]}
+
+Task 16 (13 steps):
+  Instruction: Put the <apple>(44) into the <display bin>(2) and put the <pack of bread>(27) on the <pedestal table>(6).
+  Goal: {'inside_<apple>(44)_<display bin>(2)': [1, []], 'on_<pack of bread>(27)_<pedestal table>(6)': [1, []]}
+
+Task 17 (15 steps):
+  Instruction: Put the <chocolate bar>(35) on the <grocery shelf>(29) and put the <paper money>(36) on the <pedestal table>(7).
+  Goal: {'on_<chocolate bar>(35)_<grocery shelf>(29)': [1, []], 'on_<paper money>(36)_<pedestal table>(7)': [1, []]}
+
+
+================================================================================
+ENV3 - Tasks: [2, 4, 6, 7, 10, 16, 17, 19]
+================================================================================
+
+Task  2 ( 4 steps):
+  Instruction: Put the <bottle of milk>(23) and <bread>(24) into the <basket>(22).
+  Goal: {'inside_<bottle of milk>(23)_<basket>(22)': [1, []], 'inside_<bread>(24)_<basket>(22)': [1, []], 'on_<quadrotor>(21)_<bar counter>(11)': [1, []]}
+
+Task  4 ( 7 steps):
+  Instruction: Put the <coffee cup>(12) on the <coffee table>(5) and put the <bottle of milk>(23) on the <coffee table>(4).
+  Goal: {'on_<coffee cup>(12)_<coffee table>(5)': [1, []], 'on_<bottle of milk>(23)_<coffee table>(4)': [1, []]}
+
+Task  6 (10 steps):
+  Instruction: The <quadrotor>(21) lands on the <dining table>(2) with the <beer glass>(14) and <beer bottle>(15) in the <basket>(22).
+  Goal: {'inside_<beer glass>(14)_<basket>(22)': [1, []], 'inside_<beer bottle>(15)_<basket>(22)': [1, []], 'on_<quadrotor>(21)_<dining table>(2)': [1, []]}
+
+Task  7 (11 steps):
+  Instruction: The <quadrotor>(21) lands on the <dining table>(2) with the <napkin>(23) and <coffee cup>(12) in the <basket>(22).
+  Goal: {'inside_<napkin>(23)_<basket>(22)': [1, []], 'inside_<coffee cup>(12)_<basket>(22)': [1, []], 'on_<quadrotor>(21)_<dining table>(2)': [1, []]}
+
+Task 10 (10 steps):
+  Instruction: The <quadrotor>(21) lands on the <dining table>(3) with the <hamburger>(23) in the <basket>(22).
+  Goal: {'inside_<hamburger>(23)_<basket>(22)': [1, []], 'on_<quadrotor>(21)_<dining table>(3)': [1, []]}
+
+Task 16 (12 steps):
+  Instruction: Put the <paper sheet>(23) on the <bar counter>(10).
+  Goal: {'on_<paper sheet>(23)_<bar counter>(10)': [1, []]}
+
+Task 17 (12 steps):
+  Instruction: Put the <cookie>(23) inside the <plastic bag>(24).
+  Goal: {'inside_<cookie>(23)_<plastic bag>(24)': [1, []], 'on_<plastic bag>(24)_<bar counter>(11)': [1, []]}
+
+Task 19 (12 steps):
+  Instruction: The <quadrotor>(21) lands on the <dining table>(2) with the <tray>(23) and <hot dog>(24) in the <basket>(22), where <tray>(23) need to be put into the <basket>(22) first.
+  Goal: {'inside_<hot dog>(24)_<basket>(22)': [1, []], 'inside_<tray>(23)_<basket>(22)': [1, []], 'on_<quadrotor>(21)_<dining table>(2)': [1, []]}
+
+
+================================================================================
+ENV4 - Tasks: [0, 1, 7, 10, 12, 17, 18, 19]
+================================================================================
+
+Task  0 ( 7 steps):
+  Instruction: Put the <rag>(22) on the <garage table>(26).
+  Goal: {'on_<rag>(22)_<garage table>(26)': [1, []]}
+
+Task  1 ( 7 steps):
+  Instruction: Put the <mail>(21) on the <coffee table>(10).
+  Goal: {'on_<mail>(21)_<coffee table>(10)': [1, []]}
+
+Task  7 (10 steps):
+  Instruction: The <quadrotor>(25) lands on the <dining table>(30) with the <water cup>(34) in the <basket>(29).
+  Goal: {'inside_<water cup>(34)_<basket>(29)': [1, []], 'on_<quadrotor>(25)_<dining table>(30)': [1, []]}
+
+Task 10 (12 steps):
+  Instruction: The <quadrotor>(25) lands on the <coffee table>(31) with the <wallet>(34) in the <basket>(29). The <coffee table>(31) is in the <upper livingroom>(2) which is next to the <corridor>(4). 
+  Goal: {'inside_<wallet>(34)_<basket>(29)': [1, []], 'on_<quadrotor>(25)_<coffee table>(31)': [1, []]}
+
+Task 12 (10 steps):
+  Instruction: The <quadrotor>(25) lands on the <coffee table>(31) with the <hot dog>(34) in the <basket>(29). The <coffee table>(31) is in the <upper livingroom>(2) which is next to the <corridor>(4).
+  Goal: {'inside_<hot dog>(34)_<basket>(29)': [1, []], 'on_<quadrotor>(25)_<coffee table>(31)': [1, []]}
+
+Task 17 (13 steps):
+  Instruction: The <quadrotor>(25) lands on the <swing table>(16) with the <book>(34) and <bottle of milk>(35) in the <basket>(29). The <swing table>(16) is in the <garden>(5).
+  Goal: {'inside_<book>(34)_<basket>(29)': [1, []], 'inside_<bottle of milk>(35)_<basket>(29)': [1, []], 'on_<quadrotor>(25)_<swing table>(16)': [1, []]}
+
+Task 18 (13 steps):
+  Instruction: The <quadrotor>(25) lands on the <coffee table>(31) with the <kebab>(20) in the <basket>(29). The <coffee table>(31) is the <upper livingroom>(2). The <lower livingroom>(0) and the <upper livingroom>(2) are connected by the <corridor>(4).
+  Goal: {'inside_<kebab>(20)_<basket>(29)': [1, []], 'on_<quadrotor>(25)_<coffee table>(31)': [1, []]}
+
+Task 19 (12 steps):
+  Instruction: Put the <meat>(34) on the <grill>(11). The <meat>(34) is originally in the <fridge>(35).
+  Goal: {'on_<meat>(34)_<grill>(11)': [1, []]}

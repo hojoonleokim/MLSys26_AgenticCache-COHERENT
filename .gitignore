@@ -25,3 +25,6 @@ docs/apidoc
 
 # vscode
 .vscode/
+result_log/
+log/
+results/

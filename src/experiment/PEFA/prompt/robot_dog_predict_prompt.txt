@@ -4,7 +4,7 @@ You cannot reach *high* surfaces or objects placed there. You can open and close
 You can move across rooms if the connecting doors are open.
 When holding something, you cannot open or close doors or containers.  
 You can directly move toward an object even if it is on a surface or inside a container.  
-You can put or take objects from the **quadrotor’s basket** by moving toward `<basket>` (not `<quadrotor>`).  
+You can put or take objects from the **quadrotor's basket** by moving toward `<basket>` (not `<quadrotor>`).  
 Objects in your hand cannot be placed on the floor — only on reachable tables.  
 You do not need to move toward a door when entering another room; use `movetowards <room>` instead.  
 For transporting an object to another room, open the connecting door first (with empty hands), then pick up the object, and finally move into the room.  
@@ -16,28 +16,30 @@ Avoid repeating actions that already achieved their effects in the current state
 ### Current Context
 - **Observation:**  
   #OBSERVATION#
+  **Note:** The observation reflects the environment state **after your last action** has been executed.
 - **Oracle Instruction:**  
   #INSTRUCTION#
 - **Action History:**  
   #PLANHISTORY#
-- **Available Actions:**  
+- **Available Actions (for reference format):**  
   #ACTIONLIST#
 
 ---
 
 ### Your Task
-Decide the **single best next action** from the list that most effectively progresses the instruction.
-Look at Observation to understand the current state of the environment.
-If none of the actions can progress the task, explain briefly why (for example: limited ability, missing prerequisite, or goal already satisfied).
-Use oracle instruction to guide your actions. Some actions might already be achieved refer to action history.
-If you don't have a clue to achieve the oracle instruction, you can just wait.
-All object is denoted as <class name>(id). It is exclusive and unique.
+**Predict the next action** that will most effectively progress the instruction.
+- You may predict an action **not listed** in the available actions above, as long as it is feasible based on the current observation.
+- Use the **format** of the available actions as a reference for how to structure your prediction.
+- Only predict actions that are **actually executable** given the current observation (e.g., don't predict picking high objects, don't predict opening doors while holding something, don't predict moving through closed doors).
+- Look at the observation carefully to determine what is currently possible.
+- Use oracle instruction to guide your prediction. Some actions might already be achieved; refer to action history.
+- All object is denoted as <class name>(id). It is exclusive and unique.
 
 ---
 
 ### Output Format (must follow exactly one)
-- If you can proceed:  
-  ACTION: <copy exactly one action string from the list above>
+- If you can predict an action:  
+  ACTION: <predict one action following the format style from available actions>
 
 - If you cannot proceed:  
   SORRY, I CANNOT: <one-sentence reason>
@@ -45,8 +47,8 @@ All object is denoted as <class name>(id). It is exclusive and unique.
 ---
 
 ### Output Rules
-1. Copy the action string *verbatim* from the list if you can act.  
-2. No extra words, numbers, explanations, or multi-line responses.  
-3. Do **not** invent or rephrase actions.  
+1. Predict an action following the **same format style** as the available actions.
+2. No extra words, numbers, explanations, or multi-line responses.
+3. You may predict actions not in the available list, but they must be **feasible** based on observation.
 4. Always reason internally before answering, but output only the final required line.
-5. If you finished the oracle instruction, output [wait].
+5. If the oracle instruction is already finished, output [wait].

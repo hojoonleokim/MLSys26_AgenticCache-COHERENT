@@ -1,6 +1,0 @@
-bool has_args
-string agent_name
-string attached_prim_path
-std_msgs/Float64MultiArray waypoint_pos
-std_msgs/Float64MultiArray waypoint_ori
-int32 waypoint_ind
