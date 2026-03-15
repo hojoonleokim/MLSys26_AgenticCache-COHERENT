@@ -1,14 +1,21 @@
 
 import copy
 import openai
-
+import re
 import json
 from openai import OpenAIError, OpenAI
 import backoff
+import os
 
+def remove_all_brackets(text):
+	"""Remove bracket symbols but keep their content: [], <>, ()"""
+	text = re.sub(r'\[([^\]]*)\]', lambda m: m.group(1).strip(), text)  # [ content ] → content
+	text = re.sub(r'<([^>]*)>', lambda m: m.group(1).strip(), text)     # < content > → content
+	text = re.sub(r'\(([^)]*)\)', lambda m: m.group(1).strip(), text)   # ( content ) → content
+	return text
 
 class LLM:
-	def __init__(self, source, lm_id, args):
+	def __init__(self, source, lm_id, args, agent_node):
 
 		self.args = args
 		self.debug = args.debug
@@ -17,7 +24,12 @@ class LLM:
 		self.chat = True
 		self.total_cost = 0
 		self.device = None
-		self.record_dir = f'./log/{args.env}.txt'
+		# Logging: results/<branch>/<lm_id>/<env>/
+		log_base = f'./results/{args.branch}/{self.lm_id}/{args.env}'
+		os.makedirs(log_base, exist_ok=True)
+		agent_label = f'{agent_node["class_name"]}_{agent_node["id"]}'
+		self.record_dir = os.path.join(log_base, f'{args.env}_{agent_label}_{self.lm_id}_log.txt')
+		self.LLM_token_record_dir = os.path.join(log_base, f'{agent_label}_{self.lm_id}_token.txt')
 
 		if self.source == 'openai':
 
@@ -27,8 +39,8 @@ class LLM:
 			client = OpenAI(api_key = api_key, organization=organization)
 			if self.chat:
 				self.sampling_params = {
-					"max_tokens": args.max_tokens,
-                    "temperature": args.t,
+					# "max_tokens": args.max_tokens,
+                    # "temperature": args.t,
                     # "top_p": 1.0,
                     "n": args.n
 				}
@@ -51,6 +63,14 @@ class LLM:
 									f.write('\n')
 							generated_samples = [response.choices[i].message.content for i in
                                                     range(sampling_params['n'])]
+							
+							# Extract and log token usage
+							prompt_tokens = response.usage.prompt_tokens
+							completion_tokens = response.usage.completion_tokens
+							total_tokens = response.usage.total_tokens
+							self.write_token_log_to_file(f"INPUT: {prompt_tokens}, OUTPUT: {completion_tokens}, TOTAL: {total_tokens}")
+							
+							usage = response.usage.total_tokens * 0.01 / 1000
 							if 'gpt-4-0125-preview' in self.lm_id:
 								usage = response.usage.prompt_tokens * 0.01 / 1000 + response.usage.completion_tokens * 0.03 / 1000
 							elif 'gpt-3.5-turbo-1106' in self.lm_id:
@@ -73,6 +93,9 @@ class LLM:
 
 	def parse_answer(self, available_actions, text):
 		
+		# "YES I CAN." 제거
+		text = re.sub(r'YES\sI\sCAN\.?', '', text)
+		
 		text = text.replace("_", " ")
 		text = text.replace("takeoff from", "takeoff_from")
 		text = text.replace("land on", "land_on")
@@ -86,12 +109,82 @@ class LLM:
 		for i in range(len(available_actions)):
 			action = available_actions[i]
 			option = chr(ord('A') + i)
-			if f"option {option}" in text or f"{option}." in text.split(' ') or f"{option}," in text.split(' ') or f"Option {option}" in text or f"({option})" in text:
+			if f"option {option}" in text or f"{option}." in text.split(' ') or f"{option}," in text.split(' ') or f"Option {option}" in text or f"({option})" in text.split(' ') or f"{option})" in text.split(' '):
 				return action
 		self.write_log_to_file('\nThe second action parsing failed!!!')
 
+		removed_text = remove_all_brackets(text)
+		for i in range(len(available_actions)):
+			action = remove_all_brackets(available_actions[i])
+			if action in removed_text:
+				return available_actions[i]
+		self.write_log_to_file('\nThe third action parsing failed!!!')
+
+		for i in range(len(available_actions)):
+			action = available_actions[i]
+			option = chr(ord('A') + i)
+			words = removed_text.split()  # 공백으로 분해
+			if len(words) == 1 and option in words:
+				return action
+		self.write_log_to_file('\nThe fourth action parsing failed!!!')
+
 		print("WARNING! No available action parsed!!! Output plan NONE!\n")
 		return None
+
+	@staticmethod
+	def _normalize(s):
+		"""Normalize string for comparison"""
+		return ' '.join(s.strip().split()).lower()
+
+	def parse_single_output(self, raw_text, action_list):
+		"""Parse LLM output to extract action
+		
+		Args:
+			raw_text: Raw output from LLM
+			action_list: List of available actions
+			
+		Returns:
+			(plan, sorry_msg): plan is the matched action or None, sorry_msg is error message or None
+		"""
+		txt = raw_text.strip()
+
+		# 불가능 패턴
+		lower = txt.lower()
+		if lower.startswith("sorry, i cannot:") or lower.startswith("sorry, i cant:") or lower.startswith("sorry, i cannot"):
+			# "SORRY, I CANNOT: 이유" 그대로 메시지로 반환
+			reason = txt.split(":", 1)[1].strip() if ":" in txt else txt
+			return None, f"SORRY, I CANNOT: {reason}"
+
+		# 가능한 패턴: ACTION: ...
+		if lower.startswith("action:"):
+			chosen = txt.split(":", 1)[1].strip()
+			# 1) exact match
+			for a in action_list:
+				if self._normalize(a) == self._normalize(chosen):
+					# Convert [wait] to None, keep message
+					if a.strip() == '[wait]':
+						return None, chosen
+					return a, None
+			# 2) substring 혹은 포함 관계로 완화 매칭
+			for a in action_list:
+				na = self._normalize(a)
+				nc = self._normalize(chosen)
+				if na in nc or nc in na:
+					# Convert [wait] to None, keep message
+					if a.strip() == '[wait]':
+						return None, chosen
+					return a, None
+
+		# 형식을 어긴 경우: 마지막 시도 - 액션 리스트 중 하나라도 들어있으면 채택
+		for a in action_list:
+			if self._normalize(a) in self._normalize(txt):
+				# Convert [wait] to None, keep message
+				if a.strip() == '[wait]':
+					return None, txt
+				return a, None
+
+		# 완전히 실패하면 불가능 처리
+		return None, "SORRY, I CANNOT: Could not parse a valid action from the given output."
 
 	def get_available_plans(self, agent_node, next_rooms, all_landable_surfaces, landable_surfaces, on_surfaces, 
 						 grabbed_objects, reached_objects, unreached_objecs, on_same_surface_objects
@@ -124,7 +217,9 @@ class LLM:
 			if "FLYING" in agent_node["states"]:
 				if landable_surfaces is not None:
 					available_plans.append(f"[land_on] <{landable_surfaces['class_name']}>({landable_surfaces['id']})")
-					all_landable_surfaces.remove(landable_surfaces)
+					# Remove landable_surfaces by comparing id instead of object identity
+					other_landable_surfaces = [s for s in all_landable_surfaces if s['id'] != landable_surfaces['id']]
+				else:
 					other_landable_surfaces = copy.deepcopy(all_landable_surfaces)
 				if len(other_landable_surfaces) != 0:
 					for surface in other_landable_surfaces :
@@ -185,108 +280,117 @@ class LLM:
 					if 'SURFACES' in on_same_surface_object['properties']:
 						available_plans.append(f"[puton] <{grabbed_objects['class_name']}>({grabbed_objects['id']}) on <{on_same_surface_object['class_name']}>({on_same_surface_object['id']})")
 
+		# Add wait action at the end for all agent types
+		available_plans.append("[wait]")
+
 		plans = ""
 		for i, plan in enumerate(available_plans):
 			plans += f"{chr(ord('A') + i)}. {plan}\n"
-		print(agent_node["class_name"],agent_node['id'])
-		print(available_plans)
+		# print(agent_node["class_name"],agent_node['id'])
+		# print(available_plans)
 		return plans, len(available_plans), available_plans
 
-		
-	def run(self, agent_node, chat_agent_info,current_room, next_rooms, all_landable_surfaces,landable_surfaces, on_surfaces, grabbed_objects, reached_objects,unreached_objecs, on_same_surface_objects):
-		info = {"num_available_actions": None,
+			
+	def run(self, agent_node, chat_agent_info, current_room, next_rooms, all_landable_surfaces,
+			landable_surfaces, on_surfaces, grabbed_objects, reached_objects, unreached_objecs,
+			on_same_surface_objects, action_history):
+
+		info = {
+			"num_available_actions": None,
 			"prompts": None,
 			"outputs": None,
 			"plan": None,
 			"action_list": None,
-			"cost":self.total_cost, 
-			f"<{agent_node['class_name']}>({agent_node['id']}) total_cost": self.total_cost}
+			"cost": self.total_cost,
+			f"<{agent_node['class_name']}>({agent_node['id']}) total_cost": self.total_cost
+		}
 
+		# 1) 프롬프트 로드 (내용은 나중에 네가 수정 가능)
 		prompt_path = chat_agent_info['prompt_path']
-		with open(prompt_path, 'r') as f:
-			agent_prompt = f.read()
-
-		available_plans, num, available_plans_list = self.get_available_plans(agent_node, next_rooms, all_landable_surfaces,landable_surfaces, on_surfaces, grabbed_objects, reached_objects,unreached_objecs, on_same_surface_objects,
-																		 )
 		
+		with open(prompt_path, 'r') as f:
+			base_prompt = f.read()
+
+		# 2) 액션 리스트 생성
+		available_plans, num, available_plans_list = self.get_available_plans(
+			agent_node, next_rooms, all_landable_surfaces, landable_surfaces, on_surfaces,
+			grabbed_objects, reached_objects, unreached_objecs, on_same_surface_objects
+		)
+
+		# 3) 히스토리 문자열화 (최근 10개만, action_history는 dict)
+		if action_history:
+			sorted_history = sorted(action_history.items())[-10:]
+			# Convert None actions to [wait]
+			action_history_str = '\n'.join([f"{v if v is not None else '[wait]'} at step {k}" for k, v in sorted_history])
+		else:
+			action_history_str = 'None'
+
+		# 5) 플레이스홀더 치환
+		agent_prompt = base_prompt
 		agent_prompt = agent_prompt.replace('#OBSERVATION#', chat_agent_info['observation'])
 		agent_prompt = agent_prompt.replace('#ACTIONLIST#', available_plans)
 		agent_prompt = agent_prompt.replace('#INSTRUCTION#', chat_agent_info['instruction'])
-		
+		agent_prompt = agent_prompt.replace('#PLANHISTORY#', action_history_str)
+
+		# 6) 최종 프롬프트 구성 (단일 쿼리)
+		final_prompt = agent_prompt
+
 		if self.debug:
-			print(f"cot_prompt:\n{agent_prompt}")
-		chat_prompt = [{"role": "user", "content": agent_prompt}]
+			print(f"[single_query_prompt]:\n{final_prompt}")
+		self.write_log_to_file("prompt_single\n" + final_prompt + "\n-----")
+
+		# 7) 단일 호출
+		chat_prompt = [{"role": "user", "content": final_prompt}]
 		outputs, usage = self.generator(chat_prompt, self.sampling_params)
-		output = outputs[0]
-
-		self.write_log_to_file(output+'\n111111111')
-		self.total_cost += usage
+		output = outputs[0] if outputs else ""
 		info['cot_outputs'] = outputs
+		info['cost'] = self.total_cost
 
 		if self.debug:
-			print(f"cot_output:\n{output}")
-			print(f"total cost: {self.total_cost}")
-		sentences = output.split(".")
-		first_sentence = sentences[0].upper()
+			print(f"[single_query_output]:\n{output}")
+			print(f"[total cost]: {self.total_cost}")
+		self.write_log_to_file("output_single\n" + output + "\n-----")
 
-		if first_sentence == "YES I CAN":
-			chat_prompt = [{"role": "user", "content": agent_prompt},
-							{"role": "assistant", "content": output},
-							{"role": "user", "content": "Answer with only one best next action in the list of available actions. So the answer is"}]
+		# 8) 결과 파싱
+		plan, sorry_msg = self.parse_single_output(output, available_plans_list)
 
-			outputs, usage = self.generator(chat_prompt, self.sampling_params)
-			output = outputs[0]
-			self.total_cost += usage
-			self.write_log_to_file(output+'\n2222222222222')
-			sentences = output.split(".")
-			first_sentence = sentences[0].upper()
-			if first_sentence != "SORRY I CANNOT": 
+		if plan is not None:
+			plan_str = plan
+			message = f"ACTION: {plan_str}"
+			info.update({
+				"num_available_actions": num,
+				"prompts": chat_prompt,
+				"plan": plan,
+				"action_list": available_plans_list,
+				f"<{agent_node['class_name']}>({agent_node['id']}) total_cost": self.total_cost,
+				"outputs": message,
+				"raw_output": output
+			})
+		else:
+			# Check if this is a [wait] action (plan=None but message contains [wait])
+			if sorry_msg and '[wait]' in sorry_msg.lower():
+				message = f"ACTION: [wait]"
+			else:
+				# 불가능 메시지
+				message = sorry_msg if sorry_msg else "SORRY, I CANNOT: unspecified reason."
+			info.update({
+				"num_available_actions": num,
+				"prompts": chat_prompt,
+				"plan": None,
+				"action_list": available_plans_list,
+				f"<{agent_node['class_name']}>({agent_node['id']}) total_cost": self.total_cost,
+				"outputs": message,
+				"raw_output": output
+			})
 
-				if self.debug:
-					print(f"cot_output:\n{output}")
-					print(f"total cost: {self.total_cost}")
-
-				plan = self.parse_answer(available_plans_list, output)
-				if plan is None:
-					plan_str = 'no plan'
-				else:
-					plan_str = plan
-				print(plan)
-				if self.debug:
-					print(f"plan: {plan}\n")
-				info.update({"num_available_actions": num,
-						"prompts": chat_prompt,
-						# "outputs": outputs,
-						"plan": plan,
-						"action_list": available_plans_list,
-						f"<{agent_node['class_name']}>({agent_node['id']}) total_cost": self.total_cost})
-				message = f" The action I finally decided to perform is {plan_str}. "
-
-				prompt_path = self.args.judge_prompt_path
-				with open(prompt_path, 'r') as f:
-					prompt = f.read()
-				prompt = prompt.replace('#INSTRUCTION#', chat_agent_info['instruction'])
-				prompt = prompt.replace('#PLAN#', plan_str)
-				prompt = prompt.replace('#AGENT#', f"<{agent_node['class_name']}>")
-				prompt = [{"role": "user", "content": prompt}]
-				outputs, usage = self.generator(prompt, self.sampling_params)
-				output = outputs[0]
-				self.total_cost += usage
-				message += output
-				self.write_log_to_file(output+'\n333333333333333333')
-				info.update({"outputs": message})
-
-
-		if first_sentence == "SORRY I CANNOT":
-			output = output[16].lower() + output[17:]
-			message = f"Sorry, the current actions I can perform cannot complete this instrcution. Possible reasons would be {output} My current actionlist is: {available_plans}"
-			self.write_log_to_file(message+'\n4444444444444')
-		info['cost'] = self.total_cost	
-		self.write_log_to_file(f"total cost: {self.total_cost}")
-		info.update({"outputs": message})
-		return message, info
+		return message, info, output
 
 	def write_log_to_file(self,log_message, file_name=None):
 		file_name = self.record_dir
+		with open(file_name, 'a') as file:  
+			file.write(log_message + '\n')  
+			
+	def write_token_log_to_file(self,log_message, file_name=None):
+		file_name = self.LLM_token_record_dir
 		with open(file_name, 'a') as file:  
 			file.write(log_message + '\n')  
